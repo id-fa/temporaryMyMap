@@ -183,6 +183,8 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 .modal-card h2 { font-size: 16px; margin: 0 0 12px; }
 .modal-card textarea { font-size: 12px; font-family: ui-monospace, Consolas, monospace; min-height: 90px; word-break: break-all; }
 .modal-card .preview { display: block; max-width: 100%; max-height: 50vh; margin: 0 auto; border: 1px solid var(--line); border-radius: 6px; }
+/* 背景透過の画像は市松模様の上に表示して透過部分を分かるようにする */
+.modal-card .preview.transparent { background: repeating-conic-gradient(#e4e7ec 0% 25%, #fff 0% 50%) 50% / 16px 16px; }
 .modal-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; margin-top: 14px; }
 .warn { color: #b54708; background: #fffaeb; border: 1px solid #fedf89; border-radius: 8px; padding: 8px 10px; font-size: 12px; margin-top: 10px; line-height: 1.5; }
 

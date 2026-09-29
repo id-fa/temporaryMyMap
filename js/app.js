@@ -2249,14 +2249,33 @@ function drawAttribution(ctx, k, W, H) {
   ctx.fillText(text, W - tw - pad, H - h / 2);
 }
 
+// 背景透過の出力用に、ベース地図のレイヤー（と淡くする白い面）をすべて隠す。戻り値は元の表示状態を戻す関数
+function hideBaseLayers() {
+  const hidden = [];
+  for (const l of map.getStyle().layers) {
+    if (l.id.startsWith('mm-') && l.id !== 'mm-fade') continue;
+    const prev = map.getLayoutProperty(l.id, 'visibility') || 'visible';
+    if (prev === 'none') continue;
+    map.setLayoutProperty(l.id, 'visibility', 'none');
+    hidden.push(l.id);
+  }
+  return () => {
+    for (const id of hidden) if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+  };
+}
+
+function isTransparentExport() { return !!$('#opt-transparent').checked; }
+
 let exporting = false;
 async function renderImage(scale) {
   if (!styleReady) throw new Error(t('地図の読み込み中です'));
   if (ui.draft.length) finishDraft(false); // 描きかけの線は確定してから出力する
+  const transparent = isTransparentExport();
   const prevSel = ui.sel, prevFrom = ui.arrowFrom;
   const prevPR = map.getPixelRatio();
   ui.sel = null; ui.arrowFrom = null; ui.exporting = true;
   setHitLayersVisible(false);
+  const restoreBase = transparent ? hideBaseLayers() : null;
   render();
   map.setPixelRatio(scale);
   try {
@@ -2267,13 +2286,15 @@ async function renderImage(scale) {
     ctx.drawImage(src, 0, 0);
     if ($('#opt-title').checked && state.title.trim()) drawTitle(ctx, state.title.trim(), k);
     if ($('#opt-scalebar').checked) drawScaleBar(ctx, k, out.height);
-    drawAttribution(ctx, k, out.width, out.height);
+    // 背景透過でも、固定ラベルは地図データの名前を写しているので出典表記を残す
+    if (!transparent || state.pins.length) drawAttribution(ctx, k, out.width, out.height);
     return out;
   } finally {
     map.setPixelRatio(prevPR);
     ui.exporting = false;
     ui.sel = prevSel;
     ui.arrowFrom = prevFrom;
+    if (restoreBase) restoreBase();
     setHitLayersVisible(true);
     render();
   }
@@ -2284,6 +2305,7 @@ async function exportPng() {
   exporting = true;
   toast(t('画像を作成しています…'), 10000);
   try {
+    const transparent = isTransparentExport();
     const canvas = await renderImage(ui.scale);
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
     if (!blob) throw new Error(t('画像が大きすぎます。解像度を下げてください'));
@@ -2293,7 +2315,7 @@ async function exportPng() {
     const file = new File([blob], name, { type: 'image/png' });
     const canShare = navigator.canShare && navigator.canShare({ files: [file] });
     const card = openModal(`<h2>${t('画像を保存')}</h2>
-      <img class="preview" src="${url}" alt="${t('地図のプレビュー')}">
+      <img class="preview${transparent ? ' transparent' : ''}" src="${url}" alt="${t('地図のプレビュー')}">
       <p class="note">${t('{w} × {h} px。スマートフォンでは画像を長押しして保存することもできます。', { w: canvas.width, h: canvas.height })}</p>
       <div class="modal-actions">
         ${canShare ? `<button class="btn" data-m="share">${t('共有・写真に保存…')}</button>` : ''}

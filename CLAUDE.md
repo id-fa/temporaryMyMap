@@ -50,7 +50,7 @@ node --check js/app.js                     # 構文チェック（唯一の静�
 - `line-dasharray` はデータ駆動不可なので、実線と破線は別レイヤー（filter で `dash` を分岐）
 - 矢印・線の端は矢じりの下で止めるため、ピクセル量をメルカトル距離に換算して切り詰める（`addStroke` / `trimEnd`）。ズーム依存なので `zoom` イベントで `renderStrokes` を再実行している
 - 回転・ピッチは無効化（`bearingOf` などは北上前提）
-- 画像出力は `preserveDrawingBuffer` 前提。`renderImage()` が選択解除・当たり判定レイヤー非表示・`setPixelRatio(scale)` → `idle` 待ち → キャンバス合成（タイトル・縮尺バー・出典表記）→ 復元、の順で行う。出力に出したくない表示は `ui.exporting` を見て消す
+- 画像出力は `preserveDrawingBuffer` 前提。`renderImage()` が選択解除・当たり判定レイヤー非表示・`setPixelRatio(scale)` → `idle` 待ち → キャンバス合成（タイトル・縮尺バー・出典表記）→ 復元、の順で行う。出力に出したくない表示は `ui.exporting` を見て消す。「背景の地図を入れない（`#opt-transparent`）」では `hideBaseLayers()` が `mm-` 以外のレイヤーと `mm-fade` を一時的に隠して背景透過にする（出典表記は固定ラベルがあるときだけ入れる）
 
 ### ラベル固定と表示制御
 

@@ -100,8 +100,11 @@ window.TEMPORARY_MY_MAP_I18N = {
     '4倍': '4x',
     'タイトルを入れる': 'Include title',
     '縮尺バーを入れる': 'Include scale bar',
+    '背景の地図を入れない（透過）': 'Omit base map (transparent)',
     'PNG画像を保存': 'Save PNG',
     '現在の画面に表示されている範囲がそのまま画像になります。': 'The area currently shown on screen is saved as is.',
+    '背景の地図を入れないと、ポイント・矢印・線・固定ラベルだけの背景透過 PNG になります。縮尺と範囲を合わせた別の地図や航空写真に重ねる素材に使えます。':
+      'Without the base map, the PNG contains only points, arrows, lines and pinned labels on a transparent background — ready to overlay on another map or aerial photo at the same scale and extent.',
     'その他': 'Other',
     '新規作成（すべて消去）': 'New map (clear all)',
 
