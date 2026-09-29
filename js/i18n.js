@@ -250,6 +250,9 @@ window.TEMPORARY_MY_MAP_I18N = {
     // ---- 共有 ----
     '共有URL': 'Share URL',
     '{len} 文字。このURLを開くと、今の地図がそのまま再現されます。': '{len} characters. Opening this URL reproduces the current map.',
+    '閲覧専用URLにする': 'Make it a view-only URL',
+    '{len} 文字。このURLを開くと、今の地図を閲覧専用で表示します（編集はできず、画像保存だけできます）。':
+      '{len} characters. Opening this URL shows the current map as view-only (it cannot be edited; only saving as an image is available).',
     'URLが {len} 文字あります。長すぎて開けないアプリが多いため、「JSONで保存」を使ってください。':
       'The URL is {len} characters long. Many apps cannot open URLs this long, so use "Save JSON" instead.',
     'URLが {len} 文字あります。チャットやメール、埋め込み先のサービスによっては途中で切れることがあります。':

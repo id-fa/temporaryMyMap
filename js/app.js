@@ -1952,19 +1952,35 @@ function urlWarningsHtml(len) {
   return warn + local;
 }
 
+// 「閲覧専用URLにする」の選択はページを閉じるまで覚えておく
+let shareViewOnly = false;
 async function shareUrl() {
   const hash = await encodeDoc(toDoc());
-  const url = `${location.origin}${location.pathname}#${hash}`;
-  const len = url.length;
+  let url = '';
   const card = openModal(`<h2>${t('共有URL')}</h2>
-    <textarea readonly rows="4">${esc(url)}</textarea>
-    <p class="note">${t('{len} 文字。このURLを開くと、今の地図がそのまま再現されます。', { len: len.toLocaleString() })}</p>${urlWarningsHtml(len)}
+    <label class="check"><input type="checkbox" data-m="view-only" ${shareViewOnly ? 'checked' : ''}> ${t('閲覧専用URLにする')}</label>
+    <textarea readonly rows="4"></textarea>
+    <div data-out="note"></div>
     <div class="modal-actions">
       ${navigator.share ? `<button class="btn" data-m="share">${t('共有…')}</button>` : ''}
       <button class="btn primary" data-m="copy">${t('コピー')}</button>
       <button class="btn" data-m="close">${t('閉じる')}</button>
     </div>`);
+  const update = () => {
+    // 閲覧専用は ?view=1（開いた側の編集中の地図は変わらず、画像保存だけできる）
+    url = `${location.origin}${location.pathname}${shareViewOnly ? '?view=1' : ''}#${hash}`;
+    const n = { len: url.length.toLocaleString() };
+    card.querySelector('textarea').value = url;
+    card.querySelector('[data-out="note"]').innerHTML = `<p class="note">${shareViewOnly
+      ? t('{len} 文字。このURLを開くと、今の地図を閲覧専用で表示します（編集はできず、画像保存だけできます）。', n)
+      : t('{len} 文字。このURLを開くと、今の地図がそのまま再現されます。', n)}</p>${urlWarningsHtml(url.length)}`;
+  };
   card.querySelector('textarea').addEventListener('focus', e => e.target.select());
+  card.querySelector('[data-m="view-only"]').addEventListener('change', (e) => {
+    shareViewOnly = e.target.checked;
+    update();
+  });
+  update();
   card.onclick = async (e) => {
     const b = e.target.closest('[data-m]');
     if (!b) return;
