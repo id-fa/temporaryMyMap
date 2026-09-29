@@ -263,17 +263,22 @@ function stateFromDoc(doc) {
     return id;
   };
   const validLL = o => o && Number.isFinite(+o.lng) && Number.isFinite(+o.lat);
+  // 色は HTML の属性や描画に使うので #rrggbb 以外は既定色に戻す（共有URL経由の不正な値への対策）
+  const fixColors = (o, defaults, keys) => {
+    for (const k of keys) if (!/^#[0-9a-f]{6}$/i.test(o[k])) o[k] = defaults[k];
+    return o;
+  };
   const idMap = new Map();
   for (const p of doc.points) {
     if (!validLL(p)) continue;
     const id = idOf(p.id);
     idMap.set(p.id, id);
-    s.points.push({ ...POINT_DEFAULTS, ...pick(p, POINT_DEFAULTS), id, lng: +p.lng, lat: +p.lat });
+    s.points.push(fixColors({ ...POINT_DEFAULTS, ...pick(p, POINT_DEFAULTS), id, lng: +p.lng, lat: +p.lat }, POINT_DEFAULTS, ['color', 'tc']));
   }
   for (const a of doc.arrows || []) {
     const from = idMap.get(a && a.from), to = idMap.get(a && a.to);
     if (from == null || to == null || from === to) continue;
-    const arrow = { ...ARROW_DEFAULTS, ...pick(a, ARROW_DEFAULTS), id: idOf(a.id), from, to };
+    const arrow = fixColors({ ...ARROW_DEFAULTS, ...pick(a, ARROW_DEFAULTS), id: idOf(a.id), from, to }, ARROW_DEFAULTS, ['color']);
     arrow.curve = clamp(arrow.curve, -1, 1);
     arrow.width = clamp(arrow.width, 1, 12);
     if (!HEAD_SCALE[arrow.hsz]) arrow.hsz = 'm';
@@ -286,7 +291,7 @@ function stateFromDoc(doc) {
       .filter(c => Array.isArray(c) && Number.isFinite(+c[0]) && Number.isFinite(+c[1]))
       .map(c => [+c[0], clamp(+c[1], -85, 85)]);
     if (coords.length < 2) continue;
-    const line = { ...LINE_DEFAULTS, ...pick(l, LINE_DEFAULTS), id: idOf(l.id), coords };
+    const line = fixColors({ ...LINE_DEFAULTS, ...pick(l, LINE_DEFAULTS), id: idOf(l.id), coords }, LINE_DEFAULTS, ['color']);
     line.width = clamp(line.width, 1, 12);
     if (!HEAD_SCALE[line.hsz]) line.hsz = 'm';
     if (!LABEL_POSITIONS.includes(line.lpos)) line.lpos = 'c';
@@ -295,7 +300,7 @@ function stateFromDoc(doc) {
   }
   for (const p of doc.pins || []) {
     if (!validLL(p) || typeof p.text !== 'string') continue;
-    s.pins.push({ ...PIN_DEFAULTS, ...pick(p, PIN_DEFAULTS), id: idOf(p.id), lng: +p.lng, lat: +p.lat });
+    s.pins.push(fixColors({ ...PIN_DEFAULTS, ...pick(p, PIN_DEFAULTS), id: idOf(p.id), lng: +p.lng, lat: +p.lat }, PIN_DEFAULTS, ['color']));
   }
   for (const list of [s.points, s.pins]) for (const o of list) o.fs = clamp(o.fs, 8, 40);
   s.nextId = Math.max(0, ...used) + 1;
@@ -1676,19 +1681,19 @@ function renderLists() {
 
   $('#list-points').innerHTML = state.points.map(p => `
     <li data-t="point" data-id="${p.id}" class="${isSel('point', p.id) ? 'sel' : ''}">
-      <span class="dot" style="--c:${p.shape === 'n' ? '#98a2b3' : p.color}">${esc(p.shape === 'c' ? p.inner : '')}</span>
+      <span class="dot" style="--c:${p.shape === 'n' ? '#98a2b3' : esc(p.color)}">${esc(p.shape === 'c' ? p.inner : '')}</span>
       <span class="txt">${esc(p.label.replace(/\n/g, ' ') || '（ラベルなし）')}</span>${del}</li>`).join('')
     || empty('「ポイント」モードで地図をタップすると追加されます');
 
   $('#list-arrows').innerHTML = state.arrows.map(a => `
     <li data-t="arrow" data-id="${a.id}" class="${isSel('arrow', a.id) ? 'sel' : ''}">
-      <span class="bar" style="--c:${a.color}"></span>
+      <span class="bar" style="--c:${esc(a.color)}"></span>
       <span class="txt">${esc(pointName(a.from))} → ${esc(pointName(a.to))}${arrowLabelText(a) ? `（${esc(arrowLabelText(a).replace(/\n/g, ' '))}）` : ''}</span>${del}</li>`).join('')
     || empty('「矢印」モードでポイントを順にタップします');
 
   $('#list-lines').innerHTML = state.lines.map(l => `
     <li data-t="line" data-id="${l.id}" class="${isSel('line', l.id) ? 'sel' : ''}">
-      <span class="bar${l.closed ? ' shape' : ''}" style="--c:${l.color}"></span>
+      <span class="bar${l.closed ? ' shape' : ''}" style="--c:${esc(l.color)}"></span>
       <span class="txt">${esc(l.label || (l.closed ? '図形' : '線'))}（${esc(lineMeasureText(l))}）</span>${del}</li>`).join('')
     || empty('「線」モードでなぞるかタップして描きます');
 
@@ -1706,7 +1711,7 @@ function renderLists() {
 
 function syncGlobalControls() {
   $('#style-seg').innerHTML = Object.entries(STYLES).map(([k, s]) =>
-    `<button type="button" data-g="style" data-v="${k}" class="${state.style === k ? 'on' : ''}">${s.name}</button>`).join('');
+    `<button type="button" data-g="style" data-v="${esc(k)}" class="${state.style === k ? 'on' : ''}">${esc(s.name)}</button>`).join('');
   $$('[data-g="lang"]').forEach(b => b.classList.toggle('on', b.dataset.v === state.lang));
   $('[data-g="fade"]').value = state.fade;
   const titleInput = $('[data-g="title"]');
