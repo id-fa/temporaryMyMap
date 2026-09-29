@@ -92,7 +92,7 @@ node --check js/app.js                     # 構文チェック（唯一の静�
 - 画像出力の出典表記 `attributionText()` は、config の出典 + 各ソースの出典（スタイル JSON ではなく TileJSON 由来のことが多いので `map.getSource(id).attribution` から取る）を HTML からテキスト化して連結する
 - `embed`（既定 `false`）で埋め込み機能を切り替える。`?embed=1` のとき `init()` は `initEmbed()` だけを実行し、`bindUi()` もパネル描画も行わない（`ui.mode = 'view'`）。`IS_EMBED` の間は `scheduleSave()` が何もしない（同一オリジンの localStorage を上書きしないため）
 - `embed: false` のときは閲覧専用URLと、iframe 内で開かれた通常ページ（`IS_FRAMED`）の両方を `showBlocked()` で拒否する
-- 通常ページで URL の地図（`#m=` / `#j=`）を開いたとき、編集中の地図（`hasContent()`）があり内容も違えば `openUrlDoc()` → `askReplaceByUrl()` で「読み込む / 閲覧専用で開く / キャンセル」を尋ねる。閲覧専用は `?view=1#m=...`（`IS_VIEW`、`IS_EMBED` の一種）へ遷移し、埋め込み表示の仕組みで表示する。`?view=1` は `embed: false` でも開けるが iframe 内では拒否する。共有URLのダイアログ（`shareUrl()`）の「閲覧専用URLにする」でも `?view=1` 付きの URL を作れる（URL を書き換えれば編集画面で開けるが、それは許容している）。閲覧専用で開いたときだけ `initViewOnly()` が右上に画像保存ボタン（`#view-save` → `exportPng()`、出力設定は既定値）を出す。埋め込みには出さない
+- 通常ページで URL の地図（`#m=` / `#j=`）を開いたとき、編集中の地図（`hasContent()`）があり内容も違えば `openUrlDoc()` → `askReplaceByUrl()` で「読み込む / 閲覧専用で開く / キャンセル」を尋ねる。閲覧専用は `?view=1#m=...`（`IS_VIEW`、`IS_EMBED` の一種）へ遷移し、埋め込み表示の仕組みで表示する。`?view=1` は `embed: false` でも開けるが iframe 内では拒否する。共有URLのダイアログ（`shareUrl()`）の「閲覧専用URLにする」でも `?view=1` 付きの URL を作れる（URL を書き換えれば編集画面で開けるが、それは許容している）。閲覧専用で開いたときだけ `initViewOnly()` が右上に画像保存ボタン（`#view-save` → `openViewSaveDialog()` で解像度 `ui.scale` を選んで `exportPng()`。他の出力設定は既定値）を出す。埋め込みには出さない
 - `openModal(html, onClose)` の `onClose` はボタン・背景クリック・Esc・別モーダルへの置き換えのどれで閉じても呼ばれる
 - 埋め込みで出したくない編集用の表示（「なし」マーカーのガイド円など）は `IS_EMBED` を見て消す
 

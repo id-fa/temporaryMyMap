@@ -2115,11 +2115,41 @@ function initViewOnly() {
   document.body.classList.add('view-only');
   const btn = $('#view-save');
   btn.hidden = false;
-  btn.addEventListener('click', exportPng);
+  btn.addEventListener('click', openViewSaveDialog);
   // 画像保存のモーダルを背景クリック・Esc で閉じる（通常画面では bindUi() が行う）
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
   toast(t('閲覧専用で表示しています。編集中の地図は変更されません'), 4000);
+}
+
+// 閲覧専用の画像保存: 編集画面の「保存」タブと同じく解像度を選んでから作成する（その他の出力設定は既定値）
+function openViewSaveDialog() {
+  const scales = [[1, '標準'], [2, '2倍'], [3, '3倍'], [4, '4倍']];
+  const card = openModal(`<h2>${t('画像を保存')}</h2>
+    <div class="field-label">${t('解像度')}</div>
+    <div class="seg">${scales.map(([v, label]) => `<button type="button" data-scale="${v}">${t(label)}</button>`).join('')}</div>
+    <p class="note" data-out="size"></p>
+    <div class="modal-actions">
+      <button class="btn primary" data-m="create">${t('画像を作成')}</button>
+      <button class="btn" data-m="close">${t('閉じる')}</button>
+    </div>`);
+  const update = () => {
+    $$('[data-scale]', card).forEach(b => b.classList.toggle('on', +b.dataset.scale === ui.scale));
+    // 実際の出力は地図キャンバスの大きさ × 倍率になる（出力後の画面で正確な値を表示する）
+    const c = map.getContainer();
+    card.querySelector('[data-out="size"]').textContent = t('約 {w} × {h} px', {
+      w: Math.round(c.clientWidth * ui.scale), h: Math.round(c.clientHeight * ui.scale),
+    });
+  };
+  card.onclick = (e) => {
+    const s = e.target.closest('[data-scale]');
+    if (s) { ui.scale = +s.dataset.scale; update(); return; }
+    const b = e.target.closest('[data-m]');
+    if (!b) return;
+    if (b.dataset.m === 'create') exportPng(); // 結果のモーダルに置き換わる
+    if (b.dataset.m === 'close') closeModal();
+  };
+  update();
 }
 
 function showBlocked(message) {

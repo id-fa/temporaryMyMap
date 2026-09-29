@@ -300,6 +300,8 @@ window.TEMPORARY_MY_MAP_I18N = {
     '画像を作成しています…': 'Creating image…',
     '画像が大きすぎます。解像度を下げてください': 'The image is too large. Lower the resolution',
     '画像を保存': 'Save image',
+    '画像を作成': 'Create image',
+    '約 {w} × {h} px': 'About {w} × {h} px',
     '地図のプレビュー': 'Map preview',
     '{w} × {h} px。スマートフォンでは画像を長押しして保存することもできます。': '{w} × {h} px. On smartphones you can also long-press the image to save it.',
     '共有・写真に保存…': 'Share / Save to Photos…',
