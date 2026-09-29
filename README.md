@@ -2,6 +2,8 @@
 
 説明用の地図をサクッと作れる Web アプリ。Google マイマップを即興で作る感覚で、ポイント・矢印・ラベルを置いて画像保存や URL 共有ができます。
 
+**デモ: https://id-fa.github.io/temporaryMyMap/**
+
 - 地図: [MapLibre GL JS](https://maplibre.org/) + [OpenFreeMap](https://openfreemap.org/)（OpenStreetMap ベースのベクタータイル。API キー不要）。`js/config.js` で自前のタイルサーバーに切り替え可能
 - ビルド不要。`index.html` / `css/style.css` / `js/config.js` / `js/i18n.js` / `js/app.js` の静的ファイルだけで動きます
 - UI は日本語と英語に対応（English UI available）
