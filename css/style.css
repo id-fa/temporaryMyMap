@@ -37,6 +37,7 @@ svg { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round
 .tb-btn svg { width: 21px; height: 21px; }
 .tb-btn:hover { background: var(--hover); }
 .tb-btn.active { background: var(--accent-bg); color: var(--accent); }
+.tb-btn.tb-danger:hover { background: #fee4e2; color: var(--danger); }
 .tb-btn .l-short { display: none; }
 .tb-sep { flex: none; width: 1px; height: 28px; background: var(--line); margin: 0 4px; }
 .tb-spacer { flex: 1; }
@@ -212,11 +213,11 @@ body.blocked #map, body.blocked #title-overlay, body.blocked #embed-link { displ
   :root { --tb-h: 52px; }
   .brand, .desktop-only, .panel-head .icon-btn { display: none; }
   #toolbar { padding: 0 4px; gap: 0; }
-  .tb-btn { min-width: 40px; padding: 0 2px; font-size: 10px; }
+  .tb-btn { min-width: 36px; padding: 0 2px; font-size: 10px; }
   #draw-bar .btn { padding: 7px 9px; font-size: 12px; }
   .tb-btn .l-long { display: none; }
   .tb-btn .l-short { display: inline; }
-  .tb-sep { margin: 0 2px; }
+  .tb-sep { margin: 0 1px; }
 
   #map { bottom: calc(var(--sheet-min) + var(--safe-b)); }
   #hint { bottom: calc(var(--sheet-min) + var(--safe-b) + 38px); font-size: 12px; }
