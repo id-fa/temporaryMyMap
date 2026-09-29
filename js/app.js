@@ -2085,14 +2085,25 @@ async function initEmbed() {
     const a = $('#embed-link');
     a.href = `${location.pathname}${QUERY.has('lang') ? `?lang=${uiLang}` : ''}${location.hash}`;
     if (IS_VIEW) {
-      document.body.classList.add('view-only');
       // 同じタブで編集画面へ（編集中の地図があれば、そこで置き換えるか尋ねる）
       a.textContent = t('閲覧専用 ｜ 編集画面で開く');
       a.removeAttribute('target');
     }
     a.hidden = false;
   }
-  if (IS_VIEW) toast(t('閲覧専用で表示しています。編集中の地図は変更されません'), 4000);
+  if (IS_VIEW) initViewOnly();
+}
+
+// 閲覧専用で開いたとき（?view=1）だけ、画像保存を使えるようにする。埋め込み（?embed=1）には出さない
+function initViewOnly() {
+  document.body.classList.add('view-only');
+  const btn = $('#view-save');
+  btn.hidden = false;
+  btn.addEventListener('click', exportPng);
+  // 画像保存のモーダルを背景クリック・Esc で閉じる（通常画面では bindUi() が行う）
+  $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
+  toast(t('閲覧専用で表示しています。編集中の地図は変更されません'), 4000);
 }
 
 function showBlocked(message) {
@@ -2288,12 +2299,12 @@ async function exportPng() {
         ${canShare ? `<button class="btn" data-m="share">${t('共有・写真に保存…')}</button>` : ''}
         <a class="btn primary" href="${url}" download="${esc(name)}">${t('ダウンロード')}</a>
         <button class="btn" data-m="close">${t('閉じる')}</button>
-      </div>`);
+      </div>`, () => URL.revokeObjectURL(url));
     card.onclick = (e) => {
       const b = e.target.closest('[data-m]');
       if (!b) return;
       if (b.dataset.m === 'share') navigator.share({ files: [file], title: state.title || name }).catch(() => {});
-      if (b.dataset.m === 'close') { closeModal(); URL.revokeObjectURL(url); }
+      if (b.dataset.m === 'close') closeModal();
     };
   } catch (err) {
     toast(t('画像を作成できませんでした: {msg}', { msg: err.message }), 4000);

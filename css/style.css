@@ -195,19 +195,19 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 body.embed #toolbar, body.embed #panel, body.embed #hint, body.embed #draw-bar { display: none !important; }
 body.embed #map { top: 0; bottom: 0; }
 body.embed #title-overlay { top: 10px; left: 10px; font-size: 16px; max-width: calc(100vw - 20px); }
-#embed-link {
-  position: fixed; top: 10px; right: 10px; z-index: 6;
-  padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,.94); box-shadow: 0 1px 6px rgba(0,0,0,.2);
-  color: var(--accent); font-size: 12px; text-decoration: none; white-space: nowrap;
+#embed-bar { position: fixed; top: 10px; right: 10px; z-index: 6; display: flex; gap: 6px; }
+.embed-chip {
+  padding: 6px 10px; border: 0; border-radius: 8px; background: rgba(255,255,255,.94); box-shadow: 0 1px 6px rgba(0,0,0,.2);
+  color: var(--accent); font: inherit; font-size: 12px; line-height: 1.5; text-decoration: none; white-space: nowrap; cursor: pointer;
 }
-#embed-link:hover { background: #fff; text-decoration: underline; }
+.embed-chip:hover { background: #fff; text-decoration: underline; }
 /* タイトルとリンクが重ならないように */
 body.embed:has(#embed-link:not([hidden])) #title-overlay { max-width: calc(100vw - 150px); }
-body.view-only:has(#embed-link:not([hidden])) #title-overlay { max-width: calc(100vw - 230px); }
+body.view-only:has(#embed-bar > :not([hidden])) #title-overlay { max-width: calc(100vw - 320px); }
 
 #blocked { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: #f2f4f7; }
 #blocked p { margin: 0; color: var(--muted); font-size: 14px; text-align: center; line-height: 1.6; }
-body.blocked #map, body.blocked #title-overlay, body.blocked #embed-link { display: none !important; }
+body.blocked #map, body.blocked #title-overlay, body.blocked #embed-bar { display: none !important; }
 
 /* ---------- スマートフォン ---------- */
 @media (max-width: 767px) {
@@ -223,6 +223,8 @@ body.blocked #map, body.blocked #title-overlay, body.blocked #embed-link { displ
   #map { bottom: calc(var(--sheet-min) + var(--safe-b)); }
   #hint { bottom: calc(var(--sheet-min) + var(--safe-b) + 38px); font-size: 12px; }
   #title-overlay { font-size: 15px; max-width: calc(100vw - 24px); }
+  /* 閲覧専用で開いたときは右上のボタンが長いので、タイトルはその下に置く */
+  body.view-only:has(#embed-bar > :not([hidden])) #title-overlay { top: 50px; max-width: calc(100vw - 20px); }
 
   #panel {
     top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 48vh; height: 48vh;
