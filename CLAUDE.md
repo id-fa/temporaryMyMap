@@ -5,11 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 概要
 
 説明用の地図を即興で作る静的 Web アプリ（Google マイマップ風）。ビルド・依存パッケージ・テストなし。
-`index.html` + `css/style.css` + `js/app.js`（単一の IIFE、クラシックスクリプト）だけで動く。
+`index.html` + `css/style.css` + `js/config.js`（設置者向け設定）+ `js/app.js`（単一の IIFE、クラシックスクリプト）だけで動く。
 UI 文言・コメントはすべて日本語。PC / スマホ / タブレット対応（767px 以下はボトムシート UI）。
 
 - 地図ライブラリ: MapLibre GL JS 5.24.0（unpkg から読込、バージョン固定）
-- タイル: OpenFreeMap（`https://tiles.openfreemap.org/styles/{liberty|positron|bright}`、OpenMapTiles スキーマ、API キー不要）
+- タイル: 既定は OpenFreeMap（`https://tiles.openfreemap.org/styles/{liberty|positron|bright}`、OpenMapTiles スキーマ、API キー不要）。`config.js` の `styles` で差し替え可能なので、**スタイル URL・出典・書体名を `app.js` に直書きしない**（`STYLES` / `DEFAULT_STYLE` / `FONT_*` / `attributionText()` を使う）
 - ラベルの個別表示制御が要件なので **ラスタータイルには置き換えられない**（ベクタータイル必須）
 
 ## 開発コマンド
@@ -76,12 +76,14 @@ node --check js/app.js                     # 構文チェック（唯一の静�
 
 ## 設定と埋め込み（閲覧専用）表示
 
-- `js/config.js`（`window.TEMPORARY_MY_MAP_CONFIG`）はサイト設置者向け設定。`app.js` の `CONFIG` に既定値とマージされる。無くても動く
+- `js/config.js`（`window.TEMPORARY_MY_MAP_CONFIG`）はサイト設置者向け設定。`app.js` 冒頭で検証しながら `CONFIG` / `STYLES` / `DEFAULT_VIEW` に取り込む（不正な値は既定値に戻す）。無くても動く
+- 項目: `embed`、`styles`（`[{id,name,url}]`、先頭が既定。`id` は保存データに入り、一覧に無い id は `DEFAULT_STYLE` にフォールバック）、`attribution`（AttributionControl の `customAttribution` と画像出力に使う）、`fonts`（`{regular,bold}`、自前ラベルの `text-font`）、`initialView`
+- 画像出力の出典表記 `attributionText()` は、config の出典 + 各ソースの出典（スタイル JSON ではなく TileJSON 由来のことが多いので `map.getSource(id).attribution` から取る）を HTML からテキスト化して連結する
 - `embed`（既定 `false`）で埋め込み機能を切り替える。`?embed=1` のとき `init()` は `initEmbed()` だけを実行し、`bindUi()` もパネル描画も行わない（`ui.mode = 'view'`）。`IS_EMBED` の間は `scheduleSave()` が何もしない（同一オリジンの localStorage を上書きしないため）
 - `embed: false` のときは閲覧専用URLと、iframe 内で開かれた通常ページ（`IS_FRAMED`）の両方を `showBlocked()` で拒否する
 - 埋め込みで出したくない編集用の表示（「なし」マーカーのガイド円など）は `IS_EMBED` を見て消す
 
 ## 外部要件
 
-- 出典表記（`ATTRIBUTION_TEXT` と画面の AttributionControl）は OSM / OpenMapTiles / OpenFreeMap のライセンス上必須。画像出力からも消さない
+- 出典表記（`attributionText()` と画面の AttributionControl）は OSM / OpenMapTiles / タイル配信元のライセンス上必須。画像出力からも消さない
 - `location.protocol === 'file:'` でも動くが、URL 共有は Web サーバー上でないと他端末で開けない

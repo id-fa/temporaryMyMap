@@ -1,16 +1,36 @@
 /* TemporaryMyMap — 説明用の地図を即興で作るためのツール
- * 地図: MapLibre GL JS + OpenFreeMap（OpenStreetMap ベースのベクタータイル）
+ * 地図: MapLibre GL JS + OpenMapTiles スキーマのベクタータイル（既定は OpenFreeMap。js/config.js で変更可）
  */
 (() => {
 'use strict';
 
 // ============================================================
-// 定数
+// 設定（js/config.js）と定数
 // ============================================================
-const STYLES = {
-  liberty:  { name: '標準',     url: 'https://tiles.openfreemap.org/styles/liberty' },
-  positron: { name: 'ライト',   url: 'https://tiles.openfreemap.org/styles/positron' },
-  bright:   { name: 'ブライト', url: 'https://tiles.openfreemap.org/styles/bright' },
+const RAW_CONFIG = window.TEMPORARY_MY_MAP_CONFIG || {};
+const DEFAULT_STYLES = [
+  { id: 'liberty',  name: '標準',     url: 'https://tiles.openfreemap.org/styles/liberty' },
+  { id: 'positron', name: 'ライト',   url: 'https://tiles.openfreemap.org/styles/positron' },
+  { id: 'bright',   name: 'ブライト', url: 'https://tiles.openfreemap.org/styles/bright' },
+];
+// ベース地図の一覧（id → { name, url }、並び順どおり。先頭が既定）
+const STYLES = (() => {
+  const list = Array.isArray(RAW_CONFIG.styles)
+    ? RAW_CONFIG.styles.filter(s => s && typeof s.id === 'string' && s.id && typeof s.url === 'string' && s.url)
+    : [];
+  const out = {};
+  for (const s of list.length ? list : DEFAULT_STYLES) out[s.id] = { name: String(s.name || s.id), url: s.url };
+  return out;
+})();
+const DEFAULT_STYLE = Object.keys(STYLES)[0];
+const fontStack = (v, fallback) => (Array.isArray(v) && v.length ? v.map(String) : typeof v === 'string' && v ? [v] : fallback);
+const CONFIG = {
+  embed: RAW_CONFIG.embed === true,
+  attribution: typeof RAW_CONFIG.attribution === 'string' ? RAW_CONFIG.attribution.trim() : '',
+  fonts: {
+    regular: fontStack(RAW_CONFIG.fonts && RAW_CONFIG.fonts.regular, ['Noto Sans Regular']),
+    bold: fontStack(RAW_CONFIG.fonts && RAW_CONFIG.fonts.bold, ['Noto Sans Bold']),
+  },
 };
 const LABEL_CATS = [
   { key: 'place', name: '地名' },
@@ -23,16 +43,23 @@ const COLORS = ['#e53935', '#fb8c00', '#fbc02d', '#43a047', '#1e88e5', '#8e24aa'
 const TEXT_COLORS = ['#222222', '#ffffff', '#e53935', '#1e88e5', '#2e7d32', '#6d4c41'];
 const CIRCLE_R = { s: 8, m: 12, l: 16 };
 const DOT_R = { s: 4, m: 5.5, l: 7 };
-const DEFAULT_VIEW = { center: [139.7671, 35.6812], zoom: 14 };
-const CONFIG = { embed: false, ...(window.TEMPORARY_MY_MAP_CONFIG || {}) };
+const DEFAULT_VIEW = (() => {
+  const v = RAW_CONFIG.initialView;
+  const ok = v && Array.isArray(v.center) && Number.isFinite(+v.center[0]) && Number.isFinite(+v.center[1]);
+  return ok
+    ? { center: [+v.center[0], +v.center[1]], zoom: Math.min(22, Math.max(0, Number(v.zoom) || 14)) }
+    : { center: [139.7671, 35.6812], zoom: 14 };
+})();
 // 閲覧専用（埋め込み）表示のパラメータ: ?embed=1[&fit=0][&static=1][&link=0]#m=...
 const EMBED_PARAMS = new URLSearchParams(location.search);
 const IS_EMBED = EMBED_PARAMS.get('embed') === '1';
 const IS_FRAMED = (() => { try { return window.self !== window.top; } catch (_) { return true; } })();
 const AUTOSAVE_KEY = 'temporarymymap:autosave';
-const ATTRIBUTION_TEXT = '© OpenStreetMap contributors, © OpenMapTiles, OpenFreeMap';
-const FONT_REGULAR = ['Noto Sans Regular'];
-const FONT_BOLD = ['Noto Sans Bold'];
+// 出典表記を取得できなかったときの予備（通常は config かスタイルの出典情報を使う）
+const FALLBACK_ATTRIBUTION = '© OpenStreetMap contributors';
+// 自前ラベル用の書体。ベース地図の配信元（glyphs）に同名の書体が必要
+const FONT_REGULAR = CONFIG.fonts.regular;
+const FONT_BOLD = CONFIG.fonts.bold;
 const TEXT_FONT = ['case', ['get', 'bold'], ['literal', FONT_BOLD], ['literal', FONT_REGULAR]];
 const JA_TEXT_FIELD = ['coalesce', ['get', 'name:ja'], ['get', 'name']];
 const LOCAL_IDEOGRAPH_FONT = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif';
@@ -63,7 +90,7 @@ const SIMPLIFY_PX = 2.5;
 // ============================================================
 function newState() {
   return {
-    title: '', style: 'liberty', lang: 'ja', fade: 0,
+    title: '', style: DEFAULT_STYLE, lang: 'ja', fade: 0,
     labels: { place: true, poi: true, road: true, water: true, other: true },
     points: [], arrows: [], lines: [], pins: [], nextId: 1,
   };
@@ -359,7 +386,10 @@ function createMap(view, { interactive = true, embed = false } = {}) {
   if (interactive) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
   if (!embed) map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), 'bottom-left');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
-  map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
+  map.addControl(new maplibregl.AttributionControl({
+    compact: true,
+    ...(CONFIG.attribution ? { customAttribution: esc(CONFIG.attribution) } : {}),
+  }), 'bottom-left');
 
   map.on('style.load', setupStyle);
   map.on('styleimagemissing', onImageMissing);
@@ -2022,15 +2052,40 @@ function drawScaleBar(ctx, k, H) {
   ctx.fillText(label, x, y - 9 * k);
 }
 
+// 画像に書き込む出典表記。画面の出典表示と同じく、config の出典とベース地図のスタイルに含まれる出典をまとめる
+function attributionText() {
+  const parts = [];
+  if (CONFIG.attribution) parts.push(CONFIG.attribution);
+  const style = map && map.getStyle();
+  for (const [id, def] of Object.entries((style && style.sources) || {})) {
+    // 出典はスタイル JSON ではなく TileJSON 側にあることが多いので、読み込み済みのソースから取る
+    const src = map.getSource(id);
+    const html = (src && src.attribution) || def.attribution;
+    if (!html) continue;
+    // 出典は HTML（リンク付き）なのでテキストだけ取り出す
+    const text = new DOMParser().parseFromString(html, 'text/html').body.textContent.replace(/\s+/g, ' ').trim();
+    if (text && !parts.includes(text)) parts.push(text);
+  }
+  return parts.join(' / ') || FALLBACK_ATTRIBUTION;
+}
+
 function drawAttribution(ctx, k, W, H) {
-  ctx.font = `${10 * k}px ${CANVAS_FONT}`;
-  const tw = ctx.measureText(ATTRIBUTION_TEXT).width;
-  const pad = 4 * k;
+  const text = attributionText();
+  let fs = 10 * k;
+  ctx.font = `${fs}px ${CANVAS_FONT}`;
+  // 画像の幅に収まらない場合は文字を小さくする
+  const maxW = W - 16 * k;
+  if (ctx.measureText(text).width > maxW) {
+    fs *= maxW / ctx.measureText(text).width;
+    ctx.font = `${fs}px ${CANVAS_FONT}`;
+  }
+  const tw = ctx.measureText(text).width;
+  const pad = 4 * k, h = fs + 6 * k;
   ctx.fillStyle = 'rgba(255,255,255,.75)';
-  ctx.fillRect(W - tw - pad * 2, H - 16 * k, tw + pad * 2, 16 * k);
+  ctx.fillRect(W - tw - pad * 2, H - h, tw + pad * 2, h);
   ctx.fillStyle = '#333';
   ctx.textBaseline = 'middle';
-  ctx.fillText(ATTRIBUTION_TEXT, W - tw - pad, H - 8 * k);
+  ctx.fillText(text, W - tw - pad, H - h / 2);
 }
 
 let exporting = false;

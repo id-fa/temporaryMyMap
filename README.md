@@ -2,8 +2,8 @@
 
 説明用の地図をサクッと作れる Web アプリ。Google マイマップを即興で作る感覚で、ポイント・矢印・ラベルを置いて画像保存や URL 共有ができます。
 
-- 地図: [MapLibre GL JS](https://maplibre.org/) + [OpenFreeMap](https://openfreemap.org/)（OpenStreetMap ベースのベクタータイル。API キー不要）
-- ビルド不要。`index.html` / `css/style.css` / `js/app.js` の静的ファイルだけで動きます
+- 地図: [MapLibre GL JS](https://maplibre.org/) + [OpenFreeMap](https://openfreemap.org/)（OpenStreetMap ベースのベクタータイル。API キー不要）。`js/config.js` で自前のタイルサーバーに切り替え可能
+- ビルド不要。`index.html` / `css/style.css` / `js/config.js` / `js/app.js` の静的ファイルだけで動きます
 
 ## 起動
 
@@ -46,10 +46,23 @@ GitHub Pages などにそのまま置けば、スマートフォンからも使�
 | 項目 | 既定値 | 内容 |
 | --- | --- | --- |
 | `embed` | `false` | 閲覧専用の埋め込み表示を許可する。`true` にすると「保存」タブに「埋め込み用HTMLを作成」が現れ、iframe 用の HTML と閲覧専用URL（`?embed=1#m=...`）を作れる。`false` の間は閲覧専用URLを開いても地図を表示せず、このアプリを iframe 内で開いた場合も表示を拒否する |
+| `styles` | OpenFreeMap の 3 種 | ベース地図の一覧 `[{ id, name, url }]`（`url` は MapLibre スタイル JSON）。先頭が既定 |
+| `attribution` | なし | 出典表記（プレーンテキスト）。通常はスタイル側の出典が画面・保存画像に自動で入るので、スタイルに出典が無い場合だけ指定 |
+| `fonts` | `Noto Sans Regular` / `Noto Sans Bold` | アプリが描くラベルの書体名 `{ regular, bold }`。スタイルの glyphs で配信されている書体名に合わせる |
+| `initialView` | 東京駅周辺 | 保存データが無いときの初期表示 `{ center: [経度, 緯度], zoom }` |
+
+`config.js` には各項目の記入例がコメントで入っています。
 
 埋め込み表示のオプション（URL のクエリ）: `fit=0` 保存時の表示範囲で開く（既定は全体が収まる範囲）、`static=1` 地図を操作不可にする、`link=0`「大きな地図で見る」リンクを隠す。埋め込み表示では編集できず、自動保存も行わない。ページのスクロールを妨げないよう、地図の拡大縮小は Ctrl+スクロール（スマホは2本指）で行う。
+
+### セルフホストするときの注意
+
+- タイルは **OpenMapTiles スキーマ** のものを使ってください。ラベルの種類分け（地名・施設・道路・水域）と日本語名（`name:ja`）の優先表示はこのスキーマ前提です。他のスキーマでも地図は表示されますが、地図ラベルはすべて「その他」扱いになります
+- タイル・スタイル・glyphs・sprite の配信元は、このアプリを置いたサイトからの読み込みを許可（CORS）している必要があります
+- `styles` の `id` は保存データ（JSON・URL）に記録されます。運用開始後に変えると、そのデータは一覧の先頭の地図で開きます
+- MapLibre GL JS 本体は unpkg から読み込んでいます。外部に出られない環境では `index.html` の `<script>` / `<link>` を手元のファイルに書き換えてください
 
 ## 注意
 
 - 地図データの出典表記（© OpenStreetMap contributors など）は画面・保存画像の両方に自動で入ります。消さずに使ってください。
-- 地図タイルは OpenFreeMap の公開サーバーを利用しています。大量アクセスが見込まれる場合は自前ホスティングを検討してください。
+- 既定では地図タイルに OpenFreeMap の公開サーバーを利用しています。大量アクセスが見込まれる場合は自前ホスティング（上記の設定）を検討してください。
