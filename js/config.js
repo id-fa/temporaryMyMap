@@ -7,6 +7,10 @@ window.TEMPORARY_MY_MAP_CONFIG = {
   //   false: 埋め込み機能を隠し、閲覧専用URLも表示しない。このアプリを iframe 内で開いた場合も表示を拒否する
   embed: false,
 
+  // UI の表示言語の既定値。'auto'（ブラウザの言語。日本語以外なら英語）/ 'ja' / 'en'。
+  // 利用者が画面で切り替えた言語と、URL の ?lang=ja / ?lang=en のほうが優先される。
+  language: 'auto',
+
   // ---- 以下はセルフホスト向け（省略時は OpenFreeMap を使う） ----
 
   // ベース地図（MapLibre スタイル JSON の URL）。先頭が既定。

@@ -5,8 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## 概要
 
 説明用の地図を即興で作る静的 Web アプリ（Google マイマップ風）。ビルド・依存パッケージ・テストなし。
-`index.html` + `css/style.css` + `js/config.js`（設置者向け設定）+ `js/app.js`（単一の IIFE、クラシックスクリプト）だけで動く。
-UI 文言・コメントはすべて日本語。PC / スマホ / タブレット対応（767px 以下はボトムシート UI）。
+`index.html` + `css/style.css` + `js/config.js`（設置者向け設定）+ `js/i18n.js`（UI の翻訳辞書）+ `js/app.js`（単一の IIFE、クラシックスクリプト）だけで動く。
+UI 文言は日本語で書き、英語 UI は翻訳辞書で切り替える（後述）。コメントはすべて日本語。PC / スマホ / タブレット対応（767px 以下はボトムシート UI）。
 
 - 地図ライブラリ: MapLibre GL JS 5.24.0（unpkg から読込、バージョン固定）
 - タイル: 既定は OpenFreeMap（`https://tiles.openfreemap.org/styles/{liberty|positron|bright}`、OpenMapTiles スキーマ、API キー不要）。`config.js` の `styles` で差し替え可能なので、**スタイル URL・出典・書体名を `app.js` に直書きしない**（`STYLES` / `DEFAULT_STYLE` / `FONT_*` / `attributionText()` を使う）
@@ -54,7 +54,7 @@ node --check js/app.js                     # 構文チェック（唯一の静�
 
 ### ラベル固定と表示制御
 
-- `baseLabelLayers`: ベーススタイルの全 symbol レイヤーを `source-layer` で 5 カテゴリに分類（`labelCategory`）。`applyBaseSettings()` が表示/非表示・言語（`name:ja` 優先）・淡さを反映する
+- `baseLabelLayers`: ベーススタイルの全 symbol レイヤーを `source-layer` で 5 カテゴリに分類（`labelCategory`）。`applyBaseSettings()` が表示/非表示・言語・淡さを反映する。`state.lang` の `'ja'` は「UI の言語を優先」の意味（保存データ互換のため値は `'ja'` のまま）で、`mapLabelLang()` が実際の言語を返す（日本語 UI は `name:ja`、英語 UI は `name:en` → `name:latin`）。`'local'` はスタイル本来の表記。固定ラベルの名前（`labelText()`）も同じ優先順
 - 固定ラベル（`pins`）はタップ地点の `queryRenderedFeatures` 結果から名前と座標をコピーし、自前レイヤーで常時表示する。POI のアイコンはベーススタイルのスプライト名（`subclass` / `class`）を再利用
 
 ### 線（手描き）
@@ -73,11 +73,22 @@ node --check js/app.js                     # 構文チェック（唯一の静�
 4. `deleteSel()`、`setField()`（前回スタイルの記憶）、`renderEditor()`、`renderLists()`、`revealItem()`、`fitAll()`
 5. モードを追加する場合: ツールバーの `data-mode` ボタン、`setMode()`、`onMapClick()`、`updateHint()`、キーボードの `keyModes`、`#map.mode-*` のカーソル CSS
 6. `index.html` の一覧（`#list-*` / `#count-*`）、README の機能表
+7. 追加した UI 文言の英訳を `js/i18n.js` に追加
+
+## UI の多言語化（日本語 / 英語）
+
+- gettext 方式。**日本語の原文がキー**で、`t('原文')` が `js/i18n.js`（`window.TEMPORARY_MY_MAP_I18N.en`）を引く。辞書に無い文言は日本語のまま出る。差し込みは `t('{n}件の地名を固定しました', { n })`、同じ原文の訳し分けは `t('太さ', { ctx: 'text' })` → キー `'太さ#text'`
+- **UI 文言を追加・変更したら必ず `js/i18n.js` の英訳も追加・変更する**。`app.js` で HTML に出す文言は `t()` を通す（`segHtml` のラベル・`HINTS`・`LABEL_CATS` の名前・スタイル名は描画時に `t()` 済み）
+- `index.html` に直書きした文言は `applyStaticTexts()` が起動時にテキストノードと `title` / `placeholder` / `aria-label` の原文を控え、切替時に差し替える。マークアップに印は不要（訳し分けは親要素に `data-i18n-ctx`）
+- 現在の言語は `uiLang`（非永続の UI 設定。地図データの `state.lang` は地図ラベルの言語で別物）。決定順は `?lang=` > localStorage `temporarymymap:uilang` > config の `language` > ブラウザの言語。`setUiLang()` が静的文言・パネル・ヒント・地図上の文字（面積の単位）を描き直す
+- 言語依存の初期値: `newState()` の `pointName`（ポイント / Point）。切替時、`pointName` が旧言語の初期値のままなら新言語の初期値にする
+- 地図ラベルの「日本語優先」は UI 言語に連動する（英語 UI では「English first」）。UI 切替時は `applyBaseSettings()` でベース地図のラベルも差し替える
+- 埋め込み URL には作成時の `lang` を入れる
 
 ## 設定と埋め込み（閲覧専用）表示
 
 - `js/config.js`（`window.TEMPORARY_MY_MAP_CONFIG`）はサイト設置者向け設定。`app.js` 冒頭で検証しながら `CONFIG` / `STYLES` / `DEFAULT_VIEW` に取り込む（不正な値は既定値に戻す）。無くても動く
-- 項目: `embed`、`styles`（`[{id,name,url}]`、先頭が既定。`id` は保存データに入り、一覧に無い id は `DEFAULT_STYLE` にフォールバック）、`attribution`（AttributionControl の `customAttribution` と画像出力に使う）、`fonts`（`{regular,bold}`、自前ラベルの `text-font`）、`initialView`
+- 項目: `embed`、`language`（UI 言語の既定値 `'auto'|'ja'|'en'`）、`styles`（`[{id,name,url}]`、先頭が既定。`id` は保存データに入り、一覧に無い id は `DEFAULT_STYLE` にフォールバック）、`attribution`（AttributionControl の `customAttribution` と画像出力に使う）、`fonts`（`{regular,bold}`、自前ラベルの `text-font`）、`initialView`
 - 画像出力の出典表記 `attributionText()` は、config の出典 + 各ソースの出典（スタイル JSON ではなく TileJSON 由来のことが多いので `map.getSource(id).attribution` から取る）を HTML からテキスト化して連結する
 - `embed`（既定 `false`）で埋め込み機能を切り替える。`?embed=1` のとき `init()` は `initEmbed()` だけを実行し、`bindUi()` もパネル描画も行わない（`ui.mode = 'view'`）。`IS_EMBED` の間は `scheduleSave()` が何もしない（同一オリジンの localStorage を上書きしないため）
 - `embed: false` のときは閲覧専用URLと、iframe 内で開かれた通常ページ（`IS_FRAMED`）の両方を `showBlocked()` で拒否する

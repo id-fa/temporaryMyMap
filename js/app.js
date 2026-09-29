@@ -24,8 +24,12 @@ const STYLES = (() => {
 })();
 const DEFAULT_STYLE = Object.keys(STYLES)[0];
 const fontStack = (v, fallback) => (Array.isArray(v) && v.length ? v.map(String) : typeof v === 'string' && v ? [v] : fallback);
+// UI の翻訳辞書（js/i18n.js）。日本語は原文なので辞書は不要
+const I18N = window.TEMPORARY_MY_MAP_I18N || {};
+const UI_LANGS = ['ja', ...Object.keys(I18N).filter(k => k !== 'ja' && I18N[k] && typeof I18N[k] === 'object')];
 const CONFIG = {
   embed: RAW_CONFIG.embed === true,
+  language: UI_LANGS.includes(RAW_CONFIG.language) ? RAW_CONFIG.language : 'auto',
   attribution: typeof RAW_CONFIG.attribution === 'string' ? RAW_CONFIG.attribution.trim() : '',
   fonts: {
     regular: fontStack(RAW_CONFIG.fonts && RAW_CONFIG.fonts.regular, ['Noto Sans Regular']),
@@ -50,18 +54,28 @@ const DEFAULT_VIEW = (() => {
     ? { center: [+v.center[0], +v.center[1]], zoom: Math.min(22, Math.max(0, Number(v.zoom) || 14)) }
     : { center: [139.7671, 35.6812], zoom: 14 };
 })();
-// 閲覧専用（埋め込み）表示のパラメータ: ?embed=1[&fit=0][&static=1][&link=0]#m=...
-const EMBED_PARAMS = new URLSearchParams(location.search);
-const IS_EMBED = EMBED_PARAMS.get('embed') === '1';
+// URL のクエリ。閲覧専用（埋め込み）表示: ?embed=1[&fit=0][&static=1][&link=0]#m=...、UI の言語: ?lang=en
+const QUERY = new URLSearchParams(location.search);
+const IS_EMBED = QUERY.get('embed') === '1';
 const IS_FRAMED = (() => { try { return window.self !== window.top; } catch (_) { return true; } })();
 const AUTOSAVE_KEY = 'temporarymymap:autosave';
+const UI_LANG_KEY = 'temporarymymap:uilang';
+// UI の言語: URL の ?lang= > 利用者が切り替えた言語 > config.js の language > ブラウザの言語
+let uiLang = (() => {
+  const ok = v => (UI_LANGS.includes(v) ? v : null);
+  let saved = null;
+  try { saved = localStorage.getItem(UI_LANG_KEY); } catch (_) { /* 使えない環境では無視 */ }
+  const browser = (navigator.languages || [navigator.language])
+    .map(l => String(l || '').toLowerCase().split('-')[0]).find(ok);
+  return ok(QUERY.get('lang')) || ok(saved) || ok(CONFIG.language)
+    || browser || (UI_LANGS.includes('en') ? 'en' : 'ja');
+})();
 // 出典表記を取得できなかったときの予備（通常は config かスタイルの出典情報を使う）
 const FALLBACK_ATTRIBUTION = '© OpenStreetMap contributors';
 // 自前ラベル用の書体。ベース地図の配信元（glyphs）に同名の書体が必要
 const FONT_REGULAR = CONFIG.fonts.regular;
 const FONT_BOLD = CONFIG.fonts.bold;
 const TEXT_FONT = ['case', ['get', 'bold'], ['literal', FONT_BOLD], ['literal', FONT_REGULAR]];
-const JA_TEXT_FIELD = ['coalesce', ['get', 'name:ja'], ['get', 'name']];
 const LOCAL_IDEOGRAPH_FONT = '"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", Meiryo, sans-serif';
 const CANVAS_FONT = 'system-ui, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif';
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
@@ -90,8 +104,9 @@ const SIMPLIFY_PX = 2.5;
 // ============================================================
 function newState() {
   return {
+    // lang: 地図ラベルの言語。'ja' は UI の言語を優先（英語 UI なら英語）、'local' は現地語＋ローマ字
     title: '', style: DEFAULT_STYLE, lang: 'ja', fade: 0,
-    pointName: 'ポイント', // 新規ポイントの既定ラベル（末尾に連番を付ける。空ならラベルなし）
+    pointName: t('ポイント'), // 新規ポイントの既定ラベル（末尾に連番を付ける。空ならラベルなし）
     labels: { place: true, poi: true, road: true, water: true, other: true },
     points: [], arrows: [], lines: [], pins: [], nextId: 1,
   };
@@ -122,6 +137,19 @@ function r5(n) { return Math.round(n * 1e5) / 1e5; }
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
+// UI 文言の翻訳。原文（日本語）をキーに辞書を引き、{name} に params の値を差し込む。
+// params.ctx を渡すと「原文#ctx」のキーを優先する（同じ原文を場面で訳し分けるとき）
+function tIn(lang, ja, params) {
+  const dict = I18N[lang];
+  let s = ja;
+  if (dict) {
+    const ctx = params && params.ctx;
+    if (ctx && Object.hasOwn(dict, `${ja}#${ctx}`)) s = dict[`${ja}#${ctx}`];
+    else if (Object.hasOwn(dict, ja)) s = dict[ja];
+  }
+  return params ? String(s).replace(/\{(\w+)\}/g, (m, k) => (Object.hasOwn(params, k) ? String(params[k]) : m)) : String(s);
+}
+function t(ja, params) { return tIn(uiLang, ja, params); }
 function newId() { return state.nextId++; }
 function feature(geometry, properties) { return { type: 'Feature', geometry, properties }; }
 function fc(features) { return { type: 'FeatureCollection', features }; }
@@ -204,7 +232,7 @@ function pushUndoCoalesced(key) {
   lastUndoKey = key; lastUndoTime = now;
 }
 function undo() {
-  if (!undoStack.length) { toast('これ以上戻せません'); return; }
+  if (!undoStack.length) { toast(t('これ以上戻せません')); return; }
   redoStack.push(snapshot());
   restoreSnapshot(undoStack.pop());
 }
@@ -246,7 +274,7 @@ function toDoc() {
 
 function stateFromDoc(doc) {
   if (!doc || typeof doc !== 'object' || !Array.isArray(doc.points)) {
-    throw new Error('TemporaryMyMap の地図データではありません');
+    throw new Error(t('TemporaryMyMap の地図データではありません'));
   }
   const s = newState();
   s.title = typeof doc.title === 'string' ? doc.title : '';
@@ -378,9 +406,9 @@ function createMap(view, { interactive = true, embed = false } = {}) {
     // 埋め込み時はページのスクロールを奪わないよう、Ctrl+スクロール／2本指でのみ地図を操作する
     cooperativeGestures: embed && interactive,
     locale: {
-      'CooperativeGesturesHandler.WindowsHelpText': 'Ctrl キーを押しながらスクロールで拡大・縮小',
-      'CooperativeGesturesHandler.MacHelpText': '⌘ キーを押しながらスクロールで拡大・縮小',
-      'CooperativeGesturesHandler.MobileHelpText': '2本指で地図を動かせます',
+      'CooperativeGesturesHandler.WindowsHelpText': t('Ctrl キーを押しながらスクロールで拡大・縮小'),
+      'CooperativeGesturesHandler.MacHelpText': t('⌘ キーを押しながらスクロールで拡大・縮小'),
+      'CooperativeGesturesHandler.MobileHelpText': t('2本指で地図を動かせます'),
     },
     localIdeographFontFamily: LOCAL_IDEOGRAPH_FONT,
     canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true },
@@ -642,18 +670,28 @@ function setHitLayersVisible(v) {
   for (const id of ['mm-pt-hit', 'mm-arrow-hit', 'mm-line-hit']) map.setLayoutProperty(id, 'visibility', v ? 'visible' : 'none');
 }
 
+// 地図ラベルに使う名前の言語（'local' はベーススタイル本来の現地語＋ローマ字表記）。
+// state.lang の 'ja' は「UI の言語を優先」の意味で、英語 UI では英語優先になる（保存データの互換のため値は 'ja' のまま）
+function mapLabelLang() { return state.lang === 'local' ? 'local' : uiLang; }
+function nameTextField(lang) {
+  if (lang === 'ja') return ['coalesce', ['get', 'name:ja'], ['get', 'name']];
+  // その言語の名前が無い地物は、ローマ字表記（name:latin）で読めるようにする
+  return ['coalesce', ['get', `name:${lang}`], ['get', 'name:latin'], ['get', 'name']];
+}
+
 // ベース地図のラベル表示・言語・淡さを反映
 function applyBaseSettings() {
   if (!styleReady) return;
   for (const l of baseLabelLayers) {
     map.setLayoutProperty(l.id, 'visibility', l.visible && state.labels[l.cat] ? 'visible' : 'none');
   }
-  if (appliedLang !== state.lang) {
+  const lang = mapLabelLang();
+  if (appliedLang !== lang) {
     for (const l of baseLabelLayers) {
       if (!l.textField || !JSON.stringify(l.textField).includes('"name')) continue;
-      map.setLayoutProperty(l.id, 'text-field', state.lang === 'ja' ? JA_TEXT_FIELD : l.textField);
+      map.setLayoutProperty(l.id, 'text-field', lang === 'local' ? l.textField : nameTextField(lang));
     }
-    appliedLang = state.lang;
+    appliedLang = lang;
   }
   map.setPaintProperty('mm-fade', 'fill-opacity', state.fade);
 }
@@ -908,12 +946,12 @@ function polygonAreaM2(coords) {
   return Math.abs(a) / 2;
 }
 function formatArea(m2) {
-  if (m2 < 10000) return `${m2 < 1000 ? Math.round(m2) : Math.round(m2 / 10) * 10}㎡`;
+  if (m2 < 10000) return `${m2 < 1000 ? Math.round(m2) : Math.round(m2 / 10) * 10}${t('㎡')}`;
   if (m2 < 1e6) return `${(m2 / 10000).toFixed(1)}ha`;
   return `${(m2 / 1e6).toFixed(m2 < 1e7 ? 2 : 1)}km²`;
 }
 function lineMeasureText(l) {
-  return l.closed ? `面積 ${formatArea(polygonAreaM2(l.coords))}` : `長さ ${formatDistance(lineLengthMeters(l.coords))}`;
+  return l.closed ? t('面積 {v}', { v: formatArea(polygonAreaM2(l.coords)) }) : t('長さ {v}', { v: formatDistance(lineLengthMeters(l.coords)) });
 }
 function lineLabelText(l) {
   return [l.label, l.dist ? lineMeasureText(l).replace(/^\S+ /, '') : ''].filter(Boolean).join('\n');
@@ -1123,7 +1161,7 @@ function onMapClick(e) {
       else if (ui.arrowFrom != null) { ui.arrowFrom = null; render(); updateHint(); }
       else {
         const arrowHit = hitTest(e.point, ['arrow']);
-        if (arrowHit) select(arrowHit); else toast('矢印はポイント同士をつなぎます。先にポイントを置いてください');
+        if (arrowHit) select(arrowHit); else toast(t('矢印はポイント同士をつなぎます。先にポイントを置いてください'));
       }
       break;
     }
@@ -1292,7 +1330,9 @@ function addPoint(lngLat) {
   // 番号付きで運用している場合は続き番号を振る
   const nums = state.points.map(p => parseInt(p.inner, 10)).filter(Number.isFinite);
   const inner = style.shape === 'c' && nums.length ? String(Math.max(...nums) + 1) : '';
-  const p = { ...style, id: newId(), lng: lngLat.lng, lat: lngLat.lat, label: state.pointName ? `${state.pointName}${state.points.length + 1}` : '', inner };
+  // 英単語で終わる名前（Point など）は番号との間に空白を入れる。「P1」のような略号はそのまま
+  const sep = /[A-Za-z]{2}$/.test(state.pointName) ? ' ' : '';
+  const p = { ...style, id: newId(), lng: lngLat.lng, lat: lngLat.lat, label: state.pointName ? `${state.pointName}${sep}${state.points.length + 1}` : '', inner };
   state.points.push(p);
   select({ type: 'point', id: p.id }, { focusLabel: true });
   scheduleSave();
@@ -1306,7 +1346,7 @@ function arrowTap(id) {
   } else {
     const from = ui.arrowFrom;
     if (state.arrows.some(a => a.from === from && a.to === id)) {
-      toast('同じ矢印がすでにあります');
+      toast(t('同じ矢印がすでにあります'));
     } else {
       pushUndo();
       const a = { ...ARROW_DEFAULTS, ...lastArrowStyle, id: newId(), from, to: id, label: '' };
@@ -1329,9 +1369,11 @@ function shownBaseLayerIds(cat) {
     .filter(l => (!cat || l.cat === cat) && map.getLayoutProperty(l.id, 'visibility') !== 'none')
     .map(l => l.id);
 }
+// 固定ラベルにする名前（地図の表示と同じ優先順。nameTextField と対応）
 function labelText(props) {
-  if (state.lang === 'ja') return props['name:ja'] || props.name || props.ref || '';
-  return props.name || props.ref || '';
+  const lang = mapLabelLang();
+  if (lang === 'local') return props.name || props.ref || '';
+  return props[`name:${lang}`] || (lang !== 'ja' && props['name:latin']) || props.name || props.ref || '';
 }
 function findBaseLabel(point) {
   if (!styleReady) return null;
@@ -1383,7 +1425,7 @@ function pinFromFeature(f, fallbackLngLat) {
 }
 function pinAt(point, lngLat) {
   const f = findBaseLabel(point);
-  if (!f) { toast('ここには固定できる地図ラベルがありません'); return; }
+  if (!f) { toast(t('ここには固定できる地図ラベルがありません')); return; }
   const pin = pinFromFeature(f, lngLat);
   if (!pin) return;
   const px = map.project([pin.lng, pin.lat]);
@@ -1392,18 +1434,18 @@ function pinAt(point, lngLat) {
     const q = map.project([p.lng, p.lat]);
     return Math.hypot(q.x - px.x, q.y - px.y) < 40;
   });
-  if (dup) { select({ type: 'pin', id: dup.id }); toast('すでに固定済みです'); return; }
+  if (dup) { select({ type: 'pin', id: dup.id }); toast(t('すでに固定済みです')); return; }
   pushUndo();
   pin.id = newId();
   state.pins.push(pin);
   select({ type: 'pin', id: pin.id });
-  toast(`「${pin.text}」を固定しました`);
+  toast(t('「{text}」を固定しました', { text: pin.text }));
   scheduleSave();
 }
 function pinVisiblePlaces() {
   if (!styleReady) return;
   const layers = shownBaseLayerIds('place');
-  if (!layers.length) { toast('地名ラベルが非表示になっています。先に表示してください'); return; }
+  if (!layers.length) { toast(t('地名ラベルが非表示になっています。先に表示してください')); return; }
   const bounds = map.getBounds();
   const seen = new Set(state.pins.map(p => p.text));
   const add = [];
@@ -1415,13 +1457,13 @@ function pinVisiblePlaces() {
     add.push(pin);
     if (add.length >= 150) break;
   }
-  if (!add.length) { toast('新たに固定できる地名が見つかりませんでした'); return; }
+  if (!add.length) { toast(t('新たに固定できる地名が見つかりませんでした')); return; }
   pushUndo();
   for (const p of add) { p.id = newId(); state.pins.push(p); }
   render();
   renderPanel();
   scheduleSave();
-  toast(`${add.length}件の地名を固定しました`);
+  toast(t('{n}件の地名を固定しました', { n: add.length }));
 }
 
 // ------------------------------------------------------------
@@ -1431,7 +1473,7 @@ function fitAll(animate = true) {
   // ポイントと線を優先し、どちらもなければ固定ラベルに合わせる
   const coords = [...state.points.map(p => [p.lng, p.lat]), ...state.lines.flatMap(l => l.coords)];
   if (!coords.length) coords.push(...state.pins.map(p => [p.lng, p.lat]));
-  if (!coords.length) { if (!IS_EMBED) toast('ポイントや線がまだありません'); return; }
+  if (!coords.length) { if (!IS_EMBED) toast(t('ポイントや線がまだありません')); return; }
   const bounds = new maplibregl.LngLatBounds();
   for (const c of coords) bounds.extend(c);
   // 埋め込み表示は画面が小さく UI もないので余白を控えめにする
@@ -1504,7 +1546,7 @@ function setField(field, raw, rebuild) {
   if (ui.sel.type === 'line' && field !== 'label' && field !== 'closed') lastLineStyle[field] = v;
   if (ui.sel.type === 'line' && field === 'closed' && v && obj.coords.length < 3) {
     obj.closed = false;
-    toast('閉じた図形には3点以上が必要です');
+    toast(t('閉じた図形には3点以上が必要です'));
   }
   render();
   renderLists();
@@ -1518,7 +1560,7 @@ function setField(field, raw, rebuild) {
 
 function numberPoints() {
   const circles = state.points.filter(p => p.shape === 'c');
-  if (!circles.length) { toast('丸マーカーのポイントがありません'); return; }
+  if (!circles.length) { toast(t('丸マーカーのポイントがありません')); return; }
   pushUndo();
   circles.forEach((p, i) => { p.inner = String(i + 1); });
   render();
@@ -1542,15 +1584,15 @@ function reverseArrow() {
 // ============================================================
 function segHtml(field, options, current) {
   return `<div class="seg">${options.map(([v, label]) =>
-    `<button type="button" data-f="${field}" data-v="${v}" class="${String(current) === String(v) ? 'on' : ''}">${label}</button>`).join('')}</div>`;
+    `<button type="button" data-f="${field}" data-v="${v}" class="${String(current) === String(v) ? 'on' : ''}">${t(label)}</button>`).join('')}</div>`;
 }
 function swatchHtml(field, colors, current) {
   return `<div class="swatches">${colors.map(c =>
     `<button type="button" class="sw ${c === current ? 'on' : ''}" style="--c:${c}" data-f="${field}" data-v="${c}" aria-label="${c}"></button>`).join('')}
-    <input type="color" data-f="${field}" value="${esc(current)}" aria-label="任意の色"></div>`;
+    <input type="color" data-f="${field}" value="${esc(current)}" aria-label="${t('任意の色')}"></div>`;
 }
 function headSizeHtml(o) {
-  return `<div class="field-label">矢じりの大きさ</div>
+  return `<div class="field-label">${t('矢じりの大きさ')}</div>
     ${segHtml('hsz', [['m', '標準'], ['l', '大'], ['xl', '特大']], o.hsz)}`;
 }
 function rangeHtml(field, label, min, max, step, value) {
@@ -1562,113 +1604,113 @@ function renderEditor(opts = {}) {
   const el = $('#editor');
   const obj = getObj(ui.sel);
   if (!obj) {
-    el.innerHTML = `<div class="help">
-      <b>使い方</b><br>
-      ① 地図をドラッグ・ズームして場所を決める<br>
-      ②「ポイント」で地図をタップして地点を追加<br>
-      ③「矢印」でポイントを順にタップしてつなぐ<br>
-      　「線」でなぞって手描き・タップで直線を描く<br>
-      ④「ラベル固定」で残したい地名をタップ<br>
-      ⑤「表示」タブで不要な地図ラベルを非表示に<br>
-      ⑥「全体表示」で縮尺を合わせて「画像保存」
-    </div>`;
+    const steps = [
+      '① 地図をドラッグ・ズームして場所を決める',
+      '②「ポイント」で地図をタップして地点を追加',
+      '③「矢印」でポイントを順にタップしてつなぐ',
+      '　「線」でなぞって手描き・タップで直線を描く',
+      '④「ラベル固定」で残したい地名をタップ',
+      '⑤「表示」タブで不要な地図ラベルを非表示に',
+      '⑥「全体表示」で縮尺を合わせて「画像保存」',
+    ];
+    el.innerHTML = `<div class="help"><b>${t('使い方')}</b><br>${steps.map(s => t(s)).join('<br>')}</div>`;
     return;
   }
-  const head = (title) => `<div class="ed-head"><span class="badge">${title}</span>
-    <button class="icon-btn" data-act="deselect" aria-label="選択解除"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`;
+  const head = (title) => `<div class="ed-head"><span class="badge">${t(title)}</span>
+    <button class="icon-btn" data-act="deselect" aria-label="${t('選択解除')}"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`;
   let html = '';
   if (ui.sel.type === 'point') {
     const p = obj;
     html = `${head('ポイント')}
-      <div class="field-label">ラベル（改行可）</div>
-      <textarea data-f="label" rows="2" placeholder="ラベルなし">${esc(p.label)}</textarea>
-      <div class="field-label">マーカー</div>
+      <div class="field-label">${t('ラベル（改行可）')}</div>
+      <textarea data-f="label" rows="2" placeholder="${t('ラベルなし')}">${esc(p.label)}</textarea>
+      <div class="field-label">${t('マーカー')}</div>
       ${segHtml('shape', [['c', '丸'], ['d', '小さな点'], ['n', 'なし']], p.shape)}
-      ${p.shape !== 'n' ? `<div class="field-label">マーカーの色</div>${swatchHtml('color', COLORS, p.color)}
+      ${p.shape !== 'n' ? `<div class="field-label">${t('マーカーの色')}</div>${swatchHtml('color', COLORS, p.color)}
         <div class="two-col">
-          <div><div class="field-label">大きさ</div>${segHtml('size', [['s', '小'], ['m', '中'], ['l', '大']], p.size)}</div>
-          ${p.shape === 'c' ? `<div><div class="field-label">丸の中の文字</div><input type="text" data-f="inner" maxlength="3" value="${esc(p.inner)}" placeholder="例: 1, A"></div>` : '<div></div>'}
+          <div><div class="field-label">${t('大きさ')}</div>${segHtml('size', [['s', '小'], ['m', '中'], ['l', '大']], p.size)}</div>
+          ${p.shape === 'c' ? `<div><div class="field-label">${t('丸の中の文字')}</div><input type="text" data-f="inner" maxlength="3" value="${esc(p.inner)}" placeholder="${t('例: 1, A')}"></div>` : '<div></div>'}
         </div>` : ''}
-      <div class="field-label">ラベルの位置</div>
+      <div class="field-label">${t('ラベルの位置')}</div>
       ${segHtml('pos', [['r', '右'], ['l', '左'], ['t', '上'], ['b', '下'], ['c', '中央']], p.pos)}
-      <div class="field-label">ラベルの形式</div>
+      <div class="field-label">${t('ラベルの形式')}</div>
       ${segHtml('ls', [['halo', '白フチ'], ['box', '枠付き']], p.ls)}
-      <div class="field-label">文字色</div>
+      <div class="field-label">${t('文字色')}</div>
       ${swatchHtml('tc', TEXT_COLORS, p.tc)}
       <div class="two-col">
-        <div>${rangeHtml('fs', '文字サイズ', 10, 32, 1, p.fs)}</div>
-        <div><div class="field-label">太さ</div>${segHtml('bold', [['false', '標準'], ['true', '太字']], p.bold)}</div>
+        <div>${rangeHtml('fs', t('文字サイズ'), 10, 32, 1, p.fs)}</div>
+        <div><div class="field-label">${t('太さ', { ctx: 'text' })}</div>${segHtml('bold', [['false', '標準'], ['true', '太字']], p.bold)}</div>
       </div>
-      <div class="field-label">新規ポイントのラベル（末尾に番号が付きます）</div>
-      <input type="text" data-g="pointName" maxlength="20" value="${esc(state.pointName)}" placeholder="空欄ならラベルなし">
+      <div class="field-label">${t('新規ポイントのラベル（末尾に番号が付きます）')}</div>
+      <input type="text" data-g="pointName" maxlength="20" value="${esc(state.pointName)}" placeholder="${t('空欄ならラベルなし')}">
       <div class="ed-actions">
-        <button class="btn" data-act="arrow-from">ここから矢印</button>
-        <button class="btn danger" data-act="delete">削除</button>
+        <button class="btn" data-act="arrow-from">${t('ここから矢印')}</button>
+        <button class="btn danger" data-act="delete">${t('削除')}</button>
       </div>`;
   } else if (ui.sel.type === 'arrow') {
     const a = obj;
-    const f = getPoint(a.from), t = getPoint(a.to);
+    const from = getPoint(a.from), to = getPoint(a.to);
     html = `${head('矢印')}
-      <div class="note">${esc((f && f.label) || '（ラベルなし）')} → ${esc((t && t.label) || '（ラベルなし）')}</div>
-      <div class="field-label">ラベル（例: 徒歩5分）</div>
-      <input type="text" data-f="label" value="${esc(a.label)}" placeholder="なし">
-      <div class="field-label"><span>距離の表示</span><span>直線 ${arrowDistanceText(a)}</span></div>
+      <div class="note">${esc((from && from.label) || t('（ラベルなし）'))} → ${esc((to && to.label) || t('（ラベルなし）'))}</div>
+      <div class="field-label">${t('ラベル（例: 徒歩5分）')}</div>
+      <input type="text" data-f="label" value="${esc(a.label)}" placeholder="${t('なし')}">
+      <div class="field-label"><span>${t('距離の表示')}</span><span>${t('直線 {d}', { d: arrowDistanceText(a) })}</span></div>
       ${segHtml('dist', [['false', '表示しない'], ['true', '表示する']], a.dist)}
-      <div class="field-label">ラベルの位置</div>
+      <div class="field-label">${t('ラベルの位置')}</div>
       ${segHtml('lpos', [['c', '線上'], ['t', '上'], ['b', '下'], ['l', '左'], ['r', '右']], a.lpos)}
-      <div class="field-label">色</div>
+      <div class="field-label">${t('色')}</div>
       ${swatchHtml('color', COLORS, a.color)}
-      <div class="field-label">太さ</div>
+      <div class="field-label">${t('太さ')}</div>
       ${segHtml('width', [[2, '細'], [4, '中'], [6, '太'], [9, '極太']], a.width)}
       <div class="two-col">
-        <div><div class="field-label">線の種類</div>${segHtml('dash', [['false', '実線'], ['true', '破線']], a.dash)}</div>
-        <div><div class="field-label">矢じり</div>${segHtml('head', [['end', '終点'], ['both', '両端'], ['none', 'なし']], a.head)}</div>
+        <div><div class="field-label">${t('線の種類')}</div>${segHtml('dash', [['false', '実線'], ['true', '破線']], a.dash)}</div>
+        <div><div class="field-label">${t('矢じり')}</div>${segHtml('head', [['end', '終点'], ['both', '両端'], ['none', 'なし']], a.head)}</div>
       </div>
       ${a.head !== 'none' ? headSizeHtml(a) : ''}
-      ${rangeHtml('curve', '曲がり具合', -1, 1, 0.05, a.curve)}
+      ${rangeHtml('curve', t('曲がり具合'), -1, 1, 0.05, a.curve)}
       <div class="ed-actions">
-        <button class="btn" data-act="reverse">向きを反転</button>
-        <button class="btn danger" data-act="delete">削除</button>
+        <button class="btn" data-act="reverse">${t('向きを反転')}</button>
+        <button class="btn danger" data-act="delete">${t('削除')}</button>
       </div>`;
   } else if (ui.sel.type === 'line') {
     const l = obj;
     html = `${head(l.closed ? '図形' : '線')}
-      <div class="note">頂点 ${l.coords.length} 個</div>
-      <div class="field-label">ラベル</div>
-      <input type="text" data-f="label" value="${esc(l.label)}" placeholder="なし">
-      <div class="field-label"><span>${l.closed ? '面積' : '長さ'}の表示</span><span>${lineMeasureText(l).replace(/^\S+ /, '')}</span></div>
+      <div class="note">${t('頂点 {n} 個', { n: l.coords.length })}</div>
+      <div class="field-label">${t('ラベル')}</div>
+      <input type="text" data-f="label" value="${esc(l.label)}" placeholder="${t('なし')}">
+      <div class="field-label"><span>${t(l.closed ? '面積の表示' : '長さの表示')}</span><span>${lineMeasureText(l).replace(/^\S+ /, '')}</span></div>
       ${segHtml('dist', [['false', '表示しない'], ['true', '表示する']], l.dist)}
-      <div class="field-label">ラベルの位置${l.closed ? '（上下左右は図形の外側）' : ''}</div>
+      <div class="field-label">${t(l.closed ? 'ラベルの位置（上下左右は図形の外側）' : 'ラベルの位置')}</div>
       ${segHtml('lpos', [['c', l.closed ? '中央' : '線上'], ['t', '上'], ['b', '下'], ['l', '左'], ['r', '右']], l.lpos)}
-      <div class="field-label">色</div>
+      <div class="field-label">${t('色')}</div>
       ${swatchHtml('color', COLORS, l.color)}
-      <div class="field-label">太さ</div>
+      <div class="field-label">${t('太さ')}</div>
       ${segHtml('width', [[2, '細'], [4, '中'], [6, '太'], [9, '極太']], l.width)}
       <div class="two-col">
-        <div><div class="field-label">線の種類</div>${segHtml('dash', [['false', '実線'], ['true', '破線']], l.dash)}</div>
-        <div><div class="field-label">形</div>${segHtml('closed', [['false', '線'], ['true', '図形']], l.closed)}</div>
+        <div><div class="field-label">${t('線の種類')}</div>${segHtml('dash', [['false', '実線'], ['true', '破線']], l.dash)}</div>
+        <div><div class="field-label">${t('形')}</div>${segHtml('closed', [['false', '線'], ['true', '図形']], l.closed)}</div>
       </div>
       ${l.closed
-        ? `<div class="field-label">塗りつぶし</div>${segHtml('fill', [['false', 'なし'], ['true', 'あり']], l.fill)}`
-        : `<div class="field-label">矢じり</div>${segHtml('head', [['none', 'なし'], ['end', '終点'], ['both', '両端']], l.head)}
+        ? `<div class="field-label">${t('塗りつぶし')}</div>${segHtml('fill', [['false', 'なし'], ['true', 'あり']], l.fill)}`
+        : `<div class="field-label">${t('矢じり')}</div>${segHtml('head', [['none', 'なし'], ['end', '終点'], ['both', '両端']], l.head)}
            ${l.head !== 'none' ? headSizeHtml(l) : ''}`}
       <div class="ed-actions">
-        <button class="btn danger" data-act="delete">削除</button>
+        <button class="btn danger" data-act="delete">${t('削除')}</button>
       </div>`;
   } else {
     const p = obj;
     html = `${head('固定ラベル')}
-      <div class="field-label">テキスト</div>
+      <div class="field-label">${t('テキスト')}</div>
       <input type="text" data-f="text" value="${esc(p.text)}">
-      <div class="field-label">文字色</div>
+      <div class="field-label">${t('文字色')}</div>
       ${swatchHtml('color', ['#222222', '#444444', '#1e5aa8', '#e53935', '#2e7d32', '#6d4c41'], p.color)}
       <div class="two-col">
-        <div>${rangeHtml('fs', '文字サイズ', 9, 32, 1, p.fs)}</div>
-        <div><div class="field-label">太さ</div>${segHtml('bold', [['false', '標準'], ['true', '太字']], p.bold)}</div>
+        <div>${rangeHtml('fs', t('文字サイズ'), 9, 32, 1, p.fs)}</div>
+        <div><div class="field-label">${t('太さ', { ctx: 'text' })}</div>${segHtml('bold', [['false', '標準'], ['true', '太字']], p.bold)}</div>
       </div>
-      <p class="note">地図上でドラッグすると位置を調整できます（選択・移動モード）。</p>
+      <p class="note">${t('地図上でドラッグすると位置を調整できます（選択・移動モード）。')}</p>
       <div class="ed-actions">
-        <button class="btn danger" data-act="delete">固定を解除</button>
+        <button class="btn danger" data-act="delete">${t('固定を解除')}</button>
       </div>`;
   }
   el.innerHTML = `<div class="editor">${html}</div>`;
@@ -1679,26 +1721,27 @@ function renderEditor(opts = {}) {
 }
 
 function renderLists() {
-  const pointName = id => { const p = getPoint(id); return p ? (p.label || p.inner || '（ラベルなし）') : '?'; };
-  const del = '<button class="del" data-item-del aria-label="削除">×</button>';
-  const empty = msg => `<li class="empty">${msg}</li>`;
+  const pointName = id => { const p = getPoint(id); return p ? (p.label || p.inner || t('（ラベルなし）')) : '?'; };
+  const paren = s => t('（{info}）', { info: esc(s) });
+  const del = `<button class="del" data-item-del aria-label="${t('削除')}">×</button>`;
+  const empty = msg => `<li class="empty">${t(msg)}</li>`;
 
   $('#list-points').innerHTML = state.points.map(p => `
     <li data-t="point" data-id="${p.id}" class="${isSel('point', p.id) ? 'sel' : ''}">
       <span class="dot" style="--c:${p.shape === 'n' ? '#98a2b3' : esc(p.color)}">${esc(p.shape === 'c' ? p.inner : '')}</span>
-      <span class="txt">${esc(p.label.replace(/\n/g, ' ') || '（ラベルなし）')}</span>${del}</li>`).join('')
+      <span class="txt">${esc(p.label.replace(/\n/g, ' ') || t('（ラベルなし）'))}</span>${del}</li>`).join('')
     || empty('「ポイント」モードで地図をタップすると追加されます');
 
   $('#list-arrows').innerHTML = state.arrows.map(a => `
     <li data-t="arrow" data-id="${a.id}" class="${isSel('arrow', a.id) ? 'sel' : ''}">
       <span class="bar" style="--c:${esc(a.color)}"></span>
-      <span class="txt">${esc(pointName(a.from))} → ${esc(pointName(a.to))}${arrowLabelText(a) ? `（${esc(arrowLabelText(a).replace(/\n/g, ' '))}）` : ''}</span>${del}</li>`).join('')
+      <span class="txt">${esc(pointName(a.from))} → ${esc(pointName(a.to))}${arrowLabelText(a) ? paren(arrowLabelText(a).replace(/\n/g, ' ')) : ''}</span>${del}</li>`).join('')
     || empty('「矢印」モードでポイントを順にタップします');
 
   $('#list-lines').innerHTML = state.lines.map(l => `
     <li data-t="line" data-id="${l.id}" class="${isSel('line', l.id) ? 'sel' : ''}">
       <span class="bar${l.closed ? ' shape' : ''}" style="--c:${esc(l.color)}"></span>
-      <span class="txt">${esc(l.label || (l.closed ? '図形' : '線'))}（${esc(lineMeasureText(l))}）</span>${del}</li>`).join('')
+      <span class="txt">${esc(l.label || t(l.closed ? '図形' : '線'))}${paren(lineMeasureText(l))}</span>${del}</li>`).join('')
     || empty('「線」モードでなぞるかタップして描きます');
 
   $('#list-pins').innerHTML = state.pins.map(p => `
@@ -1715,13 +1758,13 @@ function renderLists() {
 
 function syncGlobalControls() {
   $('#style-seg').innerHTML = Object.entries(STYLES).map(([k, s]) =>
-    `<button type="button" data-g="style" data-v="${esc(k)}" class="${state.style === k ? 'on' : ''}">${esc(s.name)}</button>`).join('');
+    `<button type="button" data-g="style" data-v="${esc(k)}" class="${state.style === k ? 'on' : ''}">${esc(t(s.name, { ctx: 'style' }))}</button>`).join('');
   $$('[data-g="lang"]').forEach(b => b.classList.toggle('on', b.dataset.v === state.lang));
   $('[data-g="fade"]').value = state.fade;
   const titleInput = $('[data-g="title"]');
   if (document.activeElement !== titleInput) titleInput.value = state.title;
   $('#label-cats').innerHTML = LABEL_CATS.map(c =>
-    `<label class="check"><input type="checkbox" data-g="label" data-cat="${c.key}" ${state.labels[c.key] ? 'checked' : ''}> ${c.name}</label>`).join('');
+    `<label class="check"><input type="checkbox" data-g="label" data-cat="${c.key}" ${state.labels[c.key] ? 'checked' : ''}> ${t(c.name)}</label>`).join('');
   $$('#scale-seg button').forEach(b => b.classList.toggle('on', +b.dataset.scale === ui.scale));
   updateTitleOverlay();
 }
@@ -1750,6 +1793,72 @@ function setPanelOpen(open) {
   $('[data-act="toggle-panel"].tb-btn').classList.toggle('active', open);
 }
 
+// ------------------------------------------------------------
+// UI の言語
+// ------------------------------------------------------------
+// index.html に直書きした文言（テキストと title / placeholder / aria-label）は、
+// 起動時に原文を控えておき、言語を切り替えるたびに差し替える
+let staticTexts = null;
+function applyStaticTexts() {
+  if (!staticTexts) {
+    staticTexts = [{ text: document.title }];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const [, pre, text, post] = /^(\s*)([\s\S]*?)(\s*)$/.exec(n.nodeValue);
+      // 親要素の data-i18n-ctx は訳し分けの文脈（t の params.ctx と同じ）
+      if (text) staticTexts.push({ node: n, text, pre, post, ctx: n.parentElement.dataset.i18nCtx });
+    }
+    for (const attr of ['title', 'placeholder', 'aria-label']) {
+      for (const el of $$(`[${attr}]`)) staticTexts.push({ el, attr, text: el.getAttribute(attr) });
+    }
+  }
+  for (const s of staticTexts) {
+    if (s.node) s.node.nodeValue = s.pre + t(s.text, s.ctx ? { ctx: s.ctx } : undefined) + s.post;
+    else if (s.el) s.el.setAttribute(s.attr, t(s.text));
+    else document.title = t(s.text);
+  }
+  document.documentElement.lang = uiLang;
+}
+
+function uiLangName(lang) { return lang === 'ja' ? '日本語' : String(I18N[lang]._name || lang); }
+
+// 言語切替の UI: ツールバー（PC）は次の言語へ切り替えるボタン、「表示」タブは全言語の選択肢
+function renderUiLangControls() {
+  const multi = UI_LANGS.length > 1;
+  $('#ui-lang-btn').hidden = !multi;
+  $('#ui-lang-section').hidden = !multi;
+  if (!multi) return;
+  const next = UI_LANGS[(UI_LANGS.indexOf(uiLang) + 1) % UI_LANGS.length];
+  $('#ui-lang-btn').dataset.uilang = next;
+  $('#ui-lang-btn .l-long').textContent = uiLangName(next);
+  $('#ui-lang-seg').innerHTML = UI_LANGS.map(l =>
+    `<button type="button" data-uilang="${l}" class="${l === uiLang ? 'on' : ''}">${esc(uiLangName(l))}</button>`).join('');
+}
+
+function setUiLang(lang) {
+  if (lang === uiLang || !UI_LANGS.includes(lang)) return;
+  const prev = uiLang;
+  uiLang = lang;
+  try { localStorage.setItem(UI_LANG_KEY, lang); } catch (_) { /* 保存できない環境では無視 */ }
+  // ?lang= 付きで開いている場合は、再読込しても切り替えた言語で開くように URL も合わせる
+  if (QUERY.has('lang')) {
+    const q = new URLSearchParams(location.search);
+    q.set('lang', lang);
+    history.replaceState(null, '', `${location.pathname}?${q}${location.hash}`);
+  }
+  // 新規ポイントの既定ラベルが初期値のままなら、新しい言語の初期値にする
+  if (state.pointName === tIn(prev, 'ポイント')) {
+    state.pointName = t('ポイント');
+    scheduleSave();
+  }
+  applyStaticTexts();
+  renderUiLangControls();
+  renderPanel();
+  updateHint();
+  applyBaseSettings(); // 「UI の言語を優先」の地図ラベル
+  render(); // 地図上の面積の単位など
+}
+
 const HINTS = {
   select: 'タップで選択・編集／ポイントやラベルはドラッグで移動',
   point: '地図をタップしてポイントを追加',
@@ -1771,7 +1880,7 @@ function updateHint() {
         : '続けて描く／最後の点をもう一度タップで完了';
     }
   }
-  $('#hint').textContent = text;
+  $('#hint').textContent = t(text);
 }
 
 function setMode(mode) {
@@ -1820,13 +1929,14 @@ async function copyText(text) {
 }
 
 function urlWarningsHtml(len) {
+  const n = { len: len.toLocaleString() };
   const warn = len > 8000
-    ? `<div class="warn">URLが ${len.toLocaleString()} 文字あります。長すぎて開けないアプリが多いため、「JSONで保存」を使ってください。</div>`
+    ? `<div class="warn">${t('URLが {len} 文字あります。長すぎて開けないアプリが多いため、「JSONで保存」を使ってください。', n)}</div>`
     : len > 2000
-      ? `<div class="warn">URLが ${len.toLocaleString()} 文字あります。チャットやメール、埋め込み先のサービスによっては途中で切れることがあります。</div>`
+      ? `<div class="warn">${t('URLが {len} 文字あります。チャットやメール、埋め込み先のサービスによっては途中で切れることがあります。', n)}</div>`
       : '';
   const local = location.protocol === 'file:'
-    ? '<div class="warn">ファイルを直接開いているため、このURLは他の端末では開けません。Webサーバーに置くと共有できます。</div>' : '';
+    ? `<div class="warn">${t('ファイルを直接開いているため、このURLは他の端末では開けません。Webサーバーに置くと共有できます。')}</div>` : '';
   return warn + local;
 }
 
@@ -1834,19 +1944,19 @@ async function shareUrl() {
   const hash = await encodeDoc(toDoc());
   const url = `${location.origin}${location.pathname}#${hash}`;
   const len = url.length;
-  const card = openModal(`<h2>共有URL</h2>
+  const card = openModal(`<h2>${t('共有URL')}</h2>
     <textarea readonly rows="4">${esc(url)}</textarea>
-    <p class="note">${len.toLocaleString()} 文字。このURLを開くと、今の地図がそのまま再現されます。</p>${urlWarningsHtml(len)}
+    <p class="note">${t('{len} 文字。このURLを開くと、今の地図がそのまま再現されます。', { len: len.toLocaleString() })}</p>${urlWarningsHtml(len)}
     <div class="modal-actions">
-      ${navigator.share ? '<button class="btn" data-m="share">共有…</button>' : ''}
-      <button class="btn primary" data-m="copy">コピー</button>
-      <button class="btn" data-m="close">閉じる</button>
+      ${navigator.share ? `<button class="btn" data-m="share">${t('共有…')}</button>` : ''}
+      <button class="btn primary" data-m="copy">${t('コピー')}</button>
+      <button class="btn" data-m="close">${t('閉じる')}</button>
     </div>`);
   card.querySelector('textarea').addEventListener('focus', e => e.target.select());
   card.onclick = async (e) => {
     const b = e.target.closest('[data-m]');
     if (!b) return;
-    if (b.dataset.m === 'copy') toast(await copyText(url) ? 'URLをコピーしました' : 'コピーできませんでした');
+    if (b.dataset.m === 'copy') toast(t(await copyText(url) ? 'URLをコピーしました' : 'コピーできませんでした'));
     if (b.dataset.m === 'share') navigator.share({ title: state.title || 'TemporaryMyMap', url }).catch(() => {});
     if (b.dataset.m === 'close') closeModal();
   };
@@ -1860,11 +1970,12 @@ function embedUrl(hash, opt) {
   if (!opt.fit) q.set('fit', '0');
   if (!opt.interactive) q.set('static', '1');
   if (!opt.link) q.set('link', '0');
+  q.set('lang', uiLang); // 埋め込み先のページに合わせ、作成時の UI 言語で表示する
   return `${location.origin}${location.pathname}?${q}#${hash}`;
 }
 function embedHtml(url, opt) {
   const width = opt.full ? '100%' : String(opt.width);
-  const title = state.title.trim() || '地図';
+  const title = state.title.trim() || t('地図');
   return `<iframe src="${esc(url)}" width="${width}" height="${opt.height}" style="border:0;max-width:100%" `
     + `loading="lazy" title="${esc(title)}" allowfullscreen></iframe>`;
 }
@@ -1873,35 +1984,35 @@ async function openEmbedDialog() {
   if (!CONFIG.embed) return;
   const hash = await encodeDoc(toDoc());
   const opt = { width: 600, height: 450, full: false, fit: true, interactive: true, link: true };
-  const card = openModal(`<h2>埋め込み（閲覧専用）</h2>
-    <p class="note">他のサイトやブログに貼り付けて、この地図を閲覧専用で表示できます。貼り付けた後に地図を編集しても埋め込み側には反映されないので、変更したら作り直してください。</p>
+  const card = openModal(`<h2>${t('埋め込み（閲覧専用）')}</h2>
+    <p class="note">${t('他のサイトやブログに貼り付けて、この地図を閲覧専用で表示できます。貼り付けた後に地図を編集しても埋め込み側には反映されないので、変更したら作り直してください。')}</p>
     <div class="two-col">
-      <label class="range-row">幅（px）<input type="number" data-em="width" min="200" max="2000" value="${opt.width}"></label>
-      <label class="range-row">高さ（px）<input type="number" data-em="height" min="150" max="2000" value="${opt.height}"></label>
+      <label class="range-row">${t('幅（px）')}<input type="number" data-em="width" min="200" max="2000" value="${opt.width}"></label>
+      <label class="range-row">${t('高さ（px）')}<input type="number" data-em="height" min="150" max="2000" value="${opt.height}"></label>
     </div>
-    <label class="check"><input type="checkbox" data-em="full"> 幅を貼り付け先に合わせる（100%）</label>
-    <div class="field-label">表示範囲</div>
+    <label class="check"><input type="checkbox" data-em="full"> ${t('幅を貼り付け先に合わせる（100%）')}</label>
+    <div class="field-label">${t('表示範囲')}</div>
     <div class="seg">
-      <button type="button" data-em-seg="fit" data-v="true" class="on">全体が収まるように</button>
-      <button type="button" data-em-seg="fit" data-v="false">今の表示範囲</button>
+      <button type="button" data-em-seg="fit" data-v="true" class="on">${t('全体が収まるように')}</button>
+      <button type="button" data-em-seg="fit" data-v="false">${t('今の表示範囲')}</button>
     </div>
-    <div class="field-label">地図の操作</div>
+    <div class="field-label">${t('地図の操作')}</div>
     <div class="seg">
-      <button type="button" data-em-seg="interactive" data-v="true" class="on">移動・拡大できる</button>
-      <button type="button" data-em-seg="interactive" data-v="false">固定（画像のように表示）</button>
+      <button type="button" data-em-seg="interactive" data-v="true" class="on">${t('移動・拡大できる')}</button>
+      <button type="button" data-em-seg="interactive" data-v="false">${t('固定（画像のように表示）')}</button>
     </div>
-    <label class="check"><input type="checkbox" data-em="link" checked> 「大きな地図で見る」リンクを表示</label>
-    <div class="field-label">プレビュー</div>
-    <iframe class="embed-preview" title="埋め込みプレビュー"></iframe>
-    <div class="field-label">埋め込み用HTML</div>
+    <label class="check"><input type="checkbox" data-em="link" checked> ${t('「大きな地図で見る」リンクを表示')}</label>
+    <div class="field-label">${t('プレビュー')}</div>
+    <iframe class="embed-preview" title="${t('埋め込みプレビュー')}"></iframe>
+    <div class="field-label">${t('埋め込み用HTML')}</div>
     <textarea readonly rows="4" data-em-out="html"></textarea>
-    <div class="field-label">閲覧専用URL</div>
+    <div class="field-label">${t('閲覧専用URL')}</div>
     <textarea readonly rows="2" data-em-out="url"></textarea>
     <div data-em-out="warn"></div>
     <div class="modal-actions">
-      <button class="btn" data-m="copy-url">URLをコピー</button>
-      <button class="btn primary" data-m="copy-html">HTMLをコピー</button>
-      <button class="btn" data-m="close">閉じる</button>
+      <button class="btn" data-m="copy-url">${t('URLをコピー')}</button>
+      <button class="btn primary" data-m="copy-html">${t('HTMLをコピー')}</button>
+      <button class="btn" data-m="close">${t('閉じる')}</button>
     </div>`);
 
   const preview = card.querySelector('.embed-preview');
@@ -1924,14 +2035,14 @@ async function openEmbedDialog() {
     else opt[key] = clamp(Math.round(Number(e.target.value) || 0), 150, 2000);
     update();
   });
-  $$('textarea', card).forEach(t => t.addEventListener('focus', () => t.select()));
+  $$('textarea', card).forEach(ta => ta.addEventListener('focus', () => ta.select()));
   card.onclick = async (e) => {
     const seg = e.target.closest('[data-em-seg]');
     if (seg) { opt[seg.dataset.emSeg] = seg.dataset.v === 'true'; update(); return; }
     const b = e.target.closest('[data-m]');
     if (!b) return;
-    if (b.dataset.m === 'copy-url') toast(await copyText(embedUrl(hash, opt)) ? 'URLをコピーしました' : 'コピーできませんでした');
-    if (b.dataset.m === 'copy-html') toast(await copyText(embedHtml(embedUrl(hash, opt), opt)) ? '埋め込み用HTMLをコピーしました' : 'コピーできませんでした');
+    if (b.dataset.m === 'copy-url') toast(t(await copyText(embedUrl(hash, opt)) ? 'URLをコピーしました' : 'コピーできませんでした'));
+    if (b.dataset.m === 'copy-html') toast(t(await copyText(embedHtml(embedUrl(hash, opt), opt)) ? '埋め込み用HTMLをコピーしました' : 'コピーできませんでした'));
     if (b.dataset.m === 'close') closeModal();
   };
   update();
@@ -1940,21 +2051,21 @@ async function openEmbedDialog() {
 // 閲覧専用表示として起動する
 async function initEmbed() {
   document.body.classList.add('embed');
-  if (!CONFIG.embed) { showBlocked('このサイトでは地図の埋め込み表示が無効になっています。'); return; }
+  if (!CONFIG.embed) { showBlocked(t('このサイトでは地図の埋め込み表示が無効になっています。')); return; }
   let doc = null;
   try { doc = await decodeHash(location.hash); } catch (_) { /* 下で表示 */ }
-  if (!doc) { showBlocked('地図データが見つかりません。埋め込み用HTMLを作り直してください。'); return; }
-  try { state = stateFromDoc(doc); } catch (_) { showBlocked('地図データを読み込めませんでした。'); return; }
-  const fit = EMBED_PARAMS.get('fit') !== '0';
-  const interactive = EMBED_PARAMS.get('static') !== '1';
+  if (!doc) { showBlocked(t('地図データが見つかりません。埋め込み用HTMLを作り直してください。')); return; }
+  try { state = stateFromDoc(doc); } catch (_) { showBlocked(t('地図データを読み込めませんでした。')); return; }
+  const fit = QUERY.get('fit') !== '0';
+  const interactive = QUERY.get('static') !== '1';
   ui.mode = 'view';
   ui.panelOpen = false;
   createMap(viewFromDoc(doc) || DEFAULT_VIEW, { interactive, embed: true });
   if (fit) fitAll(false);
   updateTitleOverlay();
-  if (EMBED_PARAMS.get('link') !== '0') {
+  if (QUERY.get('link') !== '0') {
     const a = $('#embed-link');
-    a.href = `${location.pathname}${location.hash}`;
+    a.href = `${location.pathname}${QUERY.has('lang') ? `?lang=${uiLang}` : ''}${location.hash}`;
     a.hidden = false;
   }
 }
@@ -1974,9 +2085,9 @@ async function loadFile(file) {
   try {
     const doc = JSON.parse(await file.text());
     loadDoc(doc);
-    toast(`「${file.name}」を読み込みました`);
+    toast(t('「{name}」を読み込みました', { name: file.name }));
   } catch (err) {
-    toast(`読み込めませんでした: ${err.message}`, 4000);
+    toast(t('読み込めませんでした: {msg}', { msg: err.message }), 4000);
   }
 }
 
@@ -1999,7 +2110,7 @@ function loadDoc(doc, { recordUndo = true } = {}) {
 
 function newMap() {
   if ((state.points.length || state.arrows.length || state.lines.length || state.pins.length || state.title) &&
-      !confirm('ポイント・矢印・線・固定ラベル・タイトルをすべて消去します。よろしいですか？\n（「元に戻す」で復元できます）')) return;
+      !confirm(t('ポイント・矢印・線・固定ラベル・タイトルをすべて消去します。よろしいですか？\n（「元に戻す」で復元できます）'))) return;
   pushUndo();
   const keep = { style: state.style, lang: state.lang };
   state = { ...newState(), ...keep };
@@ -2099,7 +2210,7 @@ function drawAttribution(ctx, k, W, H) {
 
 let exporting = false;
 async function renderImage(scale) {
-  if (!styleReady) throw new Error('地図の読み込み中です');
+  if (!styleReady) throw new Error(t('地図の読み込み中です'));
   if (ui.draft.length) finishDraft(false); // 描きかけの線は確定してから出力する
   const prevSel = ui.sel, prevFrom = ui.arrowFrom;
   const prevPR = map.getPixelRatio();
@@ -2130,23 +2241,23 @@ async function renderImage(scale) {
 async function exportPng() {
   if (exporting) return;
   exporting = true;
-  toast('画像を作成しています…', 10000);
+  toast(t('画像を作成しています…'), 10000);
   try {
     const canvas = await renderImage(ui.scale);
     const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
-    if (!blob) throw new Error('画像が大きすぎます。解像度を下げてください');
+    if (!blob) throw new Error(t('画像が大きすぎます。解像度を下げてください'));
     $('#toast').hidden = true;
     const name = `${fileBase()}.png`;
     const url = URL.createObjectURL(blob);
     const file = new File([blob], name, { type: 'image/png' });
     const canShare = navigator.canShare && navigator.canShare({ files: [file] });
-    const card = openModal(`<h2>画像を保存</h2>
-      <img class="preview" src="${url}" alt="地図のプレビュー">
-      <p class="note">${canvas.width} × ${canvas.height} px。スマートフォンでは画像を長押しして保存することもできます。</p>
+    const card = openModal(`<h2>${t('画像を保存')}</h2>
+      <img class="preview" src="${url}" alt="${t('地図のプレビュー')}">
+      <p class="note">${t('{w} × {h} px。スマートフォンでは画像を長押しして保存することもできます。', { w: canvas.width, h: canvas.height })}</p>
       <div class="modal-actions">
-        ${canShare ? '<button class="btn" data-m="share">共有・写真に保存…</button>' : ''}
-        <a class="btn primary" href="${url}" download="${esc(name)}">ダウンロード</a>
-        <button class="btn" data-m="close">閉じる</button>
+        ${canShare ? `<button class="btn" data-m="share">${t('共有・写真に保存…')}</button>` : ''}
+        <a class="btn primary" href="${url}" download="${esc(name)}">${t('ダウンロード')}</a>
+        <button class="btn" data-m="close">${t('閉じる')}</button>
       </div>`);
     card.onclick = (e) => {
       const b = e.target.closest('[data-m]');
@@ -2155,7 +2266,7 @@ async function exportPng() {
       if (b.dataset.m === 'close') { closeModal(); URL.revokeObjectURL(url); }
     };
   } catch (err) {
-    toast(`画像を作成できませんでした: ${err.message}`, 4000);
+    toast(t('画像を作成できませんでした: {msg}', { msg: err.message }), 4000);
   } finally {
     exporting = false;
   }
@@ -2164,7 +2275,7 @@ async function exportPng() {
 async function printMap() {
   if (exporting) return;
   exporting = true;
-  toast('印刷用の画像を作成しています…', 10000);
+  toast(t('印刷用の画像を作成しています…'), 10000);
   try {
     const canvas = await renderImage(Math.max(2, ui.scale));
     const img = $('#print-img');
@@ -2173,7 +2284,7 @@ async function printMap() {
     $('#toast').hidden = true;
     window.print();
   } catch (err) {
-    toast(`印刷できませんでした: ${err.message}`, 4000);
+    toast(t('印刷できませんでした: {msg}', { msg: err.message }), 4000);
   } finally {
     exporting = false;
   }
@@ -2198,6 +2309,9 @@ function bindUi() {
 
     const scaleBtn = e.target.closest('[data-scale]');
     if (scaleBtn) { ui.scale = +scaleBtn.dataset.scale; syncGlobalControls(); return; }
+
+    const langBtn = e.target.closest('[data-uilang]');
+    if (langBtn) { setUiLang(langBtn.dataset.uilang); return; }
 
     const g = e.target.closest('button[data-g]');
     if (g) { setGlobal(g.dataset.g, g.dataset.v); return; }
@@ -2394,9 +2508,9 @@ async function loadFromHash() {
   try {
     const doc = await decodeHash(location.hash);
     loadDoc(doc);
-    toast('URLから地図を読み込みました');
+    toast(t('URLから地図を読み込みました'));
   } catch (err) {
-    toast('URLの地図データを読み込めませんでした', 4000);
+    toast(t('URLの地図データを読み込めませんでした'), 4000);
   }
   // 読み込み後は URL を素に戻す（以降の編集は自動保存される）
   history.replaceState(null, '', location.pathname + location.search);
@@ -2406,17 +2520,19 @@ async function loadFromHash() {
 // 起動
 // ============================================================
 async function init() {
+  applyStaticTexts();
   if (IS_EMBED) { await initEmbed(); return; }
   if (IS_FRAMED && !CONFIG.embed) {
     document.body.classList.add('embed');
-    showBlocked('このサイトでは地図の埋め込み表示が無効になっています。');
+    showBlocked(t('このサイトでは地図の埋め込み表示が無効になっています。'));
     return;
   }
   $('#embed-section').hidden = !CONFIG.embed;
+  renderUiLangControls();
   bindUi();
   let doc = null, fromHash = false;
   if (/^#[mj]=/.test(location.hash)) {
-    try { doc = await decodeHash(location.hash); fromHash = true; } catch (_) { toast('URLの地図データを読み込めませんでした', 4000); }
+    try { doc = await decodeHash(location.hash); fromHash = true; } catch (_) { toast(t('URLの地図データを読み込めませんでした'), 4000); }
     history.replaceState(null, '', location.pathname + location.search);
   }
   if (!doc) doc = readAutosave();
@@ -2433,7 +2549,7 @@ async function init() {
   renderPanel();
   if (fromHash) {
     scheduleSave(); // URL を消した後に再読込しても復元できるように
-    toast('URLから地図を読み込みました');
+    toast(t('URLから地図を読み込みました'));
   }
 }
 
