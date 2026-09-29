@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>TemporaryMyMap</title>
+<meta name="description" content="説明用の地図をサクッと作れるWebアプリ">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header id="toolbar">
+  <div class="brand">TemporaryMyMap</div>
+  <button class="tb-btn" data-mode="select" title="選択・移動 (V)">
+    <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 1.5L10 19z"/></svg>
+    <span class="l-long">選択・移動</span><span class="l-short">選択</span>
+  </button>
+  <button class="tb-btn" data-mode="point" title="ポイント追加 (P)">
+    <svg viewBox="0 0 24 24"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0113 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/></svg>
+    <span class="l-long">ポイント</span><span class="l-short">地点</span>
+  </button>
+  <button class="tb-btn" data-mode="arrow" title="矢印 (A)">
+    <svg viewBox="0 0 24 24"><path d="M5 19L18 6M10 6h8v8"/></svg>
+    <span class="l-long">矢印</span><span class="l-short">矢印</span>
+  </button>
+  <button class="tb-btn" data-mode="draw" title="線・図形を描く (D)">
+    <svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 3 4-7 5 5"/><circle cx="3" cy="17" r="1.2"/><circle cx="21" cy="12" r="1.2"/></svg>
+    <span class="l-long">線</span><span class="l-short">線</span>
+  </button>
+  <button class="tb-btn" data-mode="pin" title="地図ラベルを固定 (L)">
+    <svg viewBox="0 0 24 24"><path d="M4 12V5a1 1 0 011-1h7l8 8-8 8z"/><circle cx="8.5" cy="8.5" r="1.5"/></svg>
+    <span class="l-long">ラベル固定</span><span class="l-short">固定</span>
+  </button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" data-act="fit" title="全ポイントが収まるように表示 (F)">
+    <svg viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/><circle cx="12" cy="12" r="2"/></svg>
+    <span class="l-long">全体表示</span><span class="l-short">全体</span>
+  </button>
+  <button class="tb-btn" data-act="undo" title="元に戻す (Ctrl+Z)">
+    <svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg>
+    <span class="l-long">元に戻す</span><span class="l-short">戻す</span>
+  </button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" data-act="export-png" title="画像として保存">
+    <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg>
+    <span class="l-long">画像保存</span><span class="l-short">画像</span>
+  </button>
+  <button class="tb-btn desktop-only" data-act="print" title="印刷">
+    <svg viewBox="0 0 24 24"><path d="M7 9V3h10v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M7 14h10v7H7z"/></svg>
+    <span class="l-long">印刷</span><span class="l-short">印刷</span>
+  </button>
+  <button class="tb-btn" data-act="share-url" title="URLで共有">
+    <svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/></svg>
+    <span class="l-long">URL共有</span><span class="l-short">共有</span>
+  </button>
+  <div class="tb-spacer"></div>
+  <button class="tb-btn desktop-only" data-act="toggle-panel" title="パネルの表示切替">
+    <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>
+    <span class="l-long">パネル</span><span class="l-short">パネル</span>
+  </button>
+</header>
+
+<div id="map"></div>
+<div id="title-overlay" hidden></div>
+<div id="hint"></div>
+<div id="draw-bar" hidden>
+  <button class="btn" data-act="draft-undo">1つ戻す</button>
+  <button class="btn" data-act="draft-cancel">取消</button>
+  <button class="btn" data-act="draft-close">図形にする</button>
+  <button class="btn primary" data-act="draft-done">完了</button>
+</div>
+<div id="toast" hidden></div>
+
+<aside id="panel">
+  <div class="panel-head">
+    <button class="grab" data-act="toggle-panel" aria-label="パネルを開閉"></button>
+    <div class="tabs">
+      <button class="tab" data-tab="items">要素</button>
+      <button class="tab" data-tab="view">表示</button>
+      <button class="tab" data-tab="save">保存</button>
+    </div>
+    <button class="icon-btn" data-act="toggle-panel" aria-label="パネルを閉じる">
+      <svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <div class="panel-body">
+
+    <section data-section="items">
+      <div id="editor"></div>
+      <div class="list-head">
+        <h3>ポイント <span class="count" id="count-points"></span></h3>
+        <button class="mini" data-act="number-points" title="丸マーカーに 1,2,3… の連番を振る">連番を振る</button>
+      </div>
+      <ul class="list" id="list-points"></ul>
+      <div class="list-head"><h3>矢印 <span class="count" id="count-arrows"></span></h3></div>
+      <ul class="list" id="list-arrows"></ul>
+      <div class="list-head"><h3>線・図形 <span class="count" id="count-lines"></span></h3></div>
+      <ul class="list" id="list-lines"></ul>
+      <div class="list-head">
+        <h3>固定ラベル <span class="count" id="count-pins"></span></h3>
+        <button class="mini" data-act="clear-pins">すべて解除</button>
+      </div>
+      <ul class="list" id="list-pins"></ul>
+    </section>
+
+    <section data-section="view">
+      <h3>タイトル</h3>
+      <input type="text" data-g="title" placeholder="例：集合場所までの道順" maxlength="80">
+      <p class="note">画面左上と保存画像に表示されます。</p>
+
+      <h3>ベース地図</h3>
+      <div class="seg" id="style-seg"></div>
+      <label class="range-row">背景を淡くする
+        <input type="range" data-g="fade" min="0" max="0.8" step="0.05">
+      </label>
+      <div class="field-label">地図ラベルの言語</div>
+      <div class="seg">
+        <button type="button" data-g="lang" data-v="ja">日本語優先</button>
+        <button type="button" data-g="lang" data-v="local">現地語＋ローマ字</button>
+      </div>
+
+      <h3>地図ラベルの表示</h3>
+      <div id="label-cats"></div>
+      <div class="btn-row">
+        <button class="btn" data-act="labels-none">固定ラベル以外を非表示</button>
+        <button class="btn" data-act="labels-all">すべて表示</button>
+      </div>
+      <p class="note">「ラベル固定」で固定した地名・施設名は、ここで非表示にしても縮小しても残ります。</p>
+
+      <h3>ラベルの一括固定</h3>
+      <button class="btn wide" data-act="pin-visible">いま表示中の地名をまとめて固定</button>
+    </section>
+
+    <section data-section="save">
+      <h3>URLで共有（少量向け）</h3>
+      <button class="btn wide primary" data-act="share-url">共有URLを作成</button>
+      <p class="note">地図の状態をURLに埋め込みます。ポイントやラベルが多いとURLが長くなるので、その場合はファイル保存を使ってください。</p>
+
+      <h3>ファイル（大量向け）</h3>
+      <div class="btn-row">
+        <button class="btn" data-act="save-json">JSONで保存</button>
+        <button class="btn" data-act="load-json">JSONを読込</button>
+      </div>
+      <input type="file" id="file-input" accept=".json,application/json" hidden>
+      <p class="note">JSONファイルは地図上へドラッグ＆ドロップでも読み込めます。</p>
+
+      <h3>画像・印刷</h3>
+      <div class="field-label">解像度</div>
+      <div class="seg" id="scale-seg">
+        <button type="button" data-scale="1">標準</button>
+        <button type="button" data-scale="2">2倍</button>
+        <button type="button" data-scale="3">3倍</button>
+        <button type="button" data-scale="4">4倍</button>
+      </div>
+      <label class="check"><input type="checkbox" id="opt-title" checked> タイトルを入れる</label>
+      <label class="check"><input type="checkbox" id="opt-scalebar" checked> 縮尺バーを入れる</label>
+      <div class="btn-row">
+        <button class="btn primary" data-act="export-png">PNG画像を保存</button>
+        <button class="btn" data-act="print">印刷</button>
+      </div>
+      <p class="note">現在の画面に表示されている範囲がそのまま画像になります。</p>
+
+      <h3>その他</h3>
+      <button class="btn wide danger" data-act="new-map">新規作成（すべて消去）</button>
+    </section>
+  </div>
+</aside>
+
+<div id="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true"></div>
+</div>
+
+<div id="print-area"><img id="print-img" alt=""></div>
+
+<script src="https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
