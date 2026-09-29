@@ -91,6 +91,7 @@ const SIMPLIFY_PX = 2.5;
 function newState() {
   return {
     title: '', style: DEFAULT_STYLE, lang: 'ja', fade: 0,
+    pointName: 'ポイント', // 新規ポイントの既定ラベル（末尾に連番を付ける。空ならラベルなし）
     labels: { place: true, poi: true, road: true, water: true, other: true },
     points: [], arrows: [], lines: [], pins: [], nextId: 1,
   };
@@ -233,7 +234,7 @@ function toDoc() {
     app: 'TemporaryMyMap', version: 1,
     title: state.title,
     view: { center: [r6(c.lng), r6(c.lat)], zoom: Math.round(z * 100) / 100 },
-    style: state.style, lang: state.lang, fade: state.fade,
+    style: state.style, lang: state.lang, fade: state.fade, pointName: state.pointName,
     labels: { ...state.labels },
     points: state.points.map(p => ({ ...p, lng: r6(p.lng), lat: r6(p.lat) })),
     arrows: state.arrows.map(a => ({ ...a })),
@@ -252,6 +253,7 @@ function stateFromDoc(doc) {
   if (STYLES[doc.style]) s.style = doc.style;
   if (doc.lang === 'local') s.lang = 'local';
   s.fade = clamp(Number(doc.fade) || 0, 0, 0.8);
+  if (typeof doc.pointName === 'string') s.pointName = doc.pointName.slice(0, 20);
   if (doc.labels) {
     for (const c of LABEL_CATS) if (typeof doc.labels[c.key] === 'boolean') s.labels[c.key] = doc.labels[c.key];
   }
@@ -1290,7 +1292,7 @@ function addPoint(lngLat) {
   // 番号付きで運用している場合は続き番号を振る
   const nums = state.points.map(p => parseInt(p.inner, 10)).filter(Number.isFinite);
   const inner = style.shape === 'c' && nums.length ? String(Math.max(...nums) + 1) : '';
-  const p = { ...style, id: newId(), lng: lngLat.lng, lat: lngLat.lat, label: `ポイント${state.points.length + 1}`, inner };
+  const p = { ...style, id: newId(), lng: lngLat.lng, lat: lngLat.lat, label: state.pointName ? `${state.pointName}${state.points.length + 1}` : '', inner };
   state.points.push(p);
   select({ type: 'point', id: p.id }, { focusLabel: true });
   scheduleSave();
@@ -1597,6 +1599,8 @@ function renderEditor(opts = {}) {
         <div>${rangeHtml('fs', '文字サイズ', 10, 32, 1, p.fs)}</div>
         <div><div class="field-label">太さ</div>${segHtml('bold', [['false', '標準'], ['true', '太字']], p.bold)}</div>
       </div>
+      <div class="field-label">新規ポイントのラベル（末尾に番号が付きます）</div>
+      <input type="text" data-g="pointName" maxlength="20" value="${esc(state.pointName)}" placeholder="空欄ならラベルなし">
       <div class="ed-actions">
         <button class="btn" data-act="arrow-from">ここから矢印</button>
         <button class="btn danger" data-act="delete">削除</button>
@@ -2210,6 +2214,12 @@ function bindUi() {
   });
   editor.addEventListener('input', (e) => {
     const t = e.target;
+    if (t.dataset.g === 'pointName') {
+      pushUndoCoalesced('pointName');
+      state.pointName = t.value;
+      scheduleSave();
+      return;
+    }
     if (!t.dataset.f || t.tagName === 'BUTTON') return;
     setField(t.dataset.f, t.type === 'checkbox' ? t.checked : t.value, false);
   });
