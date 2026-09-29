@@ -234,6 +234,13 @@ window.TEMPORARY_MY_MAP_I18N = {
     'TemporaryMyMap の地図データではありません': 'This is not TemporaryMyMap map data',
     'URLから地図を読み込みました': 'Loaded the map from the URL',
     'URLの地図データを読み込めませんでした': 'Could not load the map data in the URL',
+    'URLの地図を開く': 'Open the map in the URL',
+    '読み込むと、編集中の地図が消えます。よろしいですか？': 'Loading it will replace the map you are editing. Continue?',
+    '置き換えた後でも「元に戻す」で編集中の地図に戻せます（ページを閉じるまで）。閲覧専用で開くと、編集中の地図はそのまま残ります。':
+      'After replacing, you can get your map back with "Undo" (until you close the page). Opening it as view-only leaves your map untouched.',
+    'キャンセル': 'Cancel',
+    '閲覧専用で開く': 'Open as view-only',
+    '読み込む': 'Load',
     'ポイント・矢印・線・固定ラベル・タイトルをすべて消去します。よろしいですか？\n（「元に戻す」で復元できます）':
       'This clears all points, arrows, lines, pinned labels and the title. Continue?\n(You can restore them with "Undo")',
 
@@ -275,6 +282,9 @@ window.TEMPORARY_MY_MAP_I18N = {
     'このサイトでは地図の埋め込み表示が無効になっています。': 'Embedded maps are disabled on this site.',
     '地図データが見つかりません。埋め込み用HTMLを作り直してください。': 'Map data not found. Please recreate the embed HTML.',
     '地図データを読み込めませんでした。': 'Could not load the map data.',
+    '地図データが見つかりません。': 'Map data not found.',
+    '閲覧専用 ｜ 編集画面で開く': 'View-only | Open in editor',
+    '閲覧専用で表示しています。編集中の地図は変更されません': 'Showing as view-only. The map you are editing is not changed',
     'Ctrl キーを押しながらスクロールで拡大・縮小': 'Use Ctrl + scroll to zoom the map',
     '⌘ キーを押しながらスクロールで拡大・縮小': 'Use ⌘ + scroll to zoom the map',
     '2本指で地図を動かせます': 'Use two fingers to move the map',

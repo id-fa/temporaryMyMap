@@ -55,8 +55,10 @@ const DEFAULT_VIEW = (() => {
     : { center: [139.7671, 35.6812], zoom: 14 };
 })();
 // URL のクエリ。閲覧専用（埋め込み）表示: ?embed=1[&fit=0][&static=1][&link=0]#m=...、UI の言語: ?lang=en
+// 閲覧専用で開く: ?view=1#m=...（共有URLを編集中の地図と置き換えずに見る。埋め込みが無効でも使える）
 const QUERY = new URLSearchParams(location.search);
-const IS_EMBED = QUERY.get('embed') === '1';
+const IS_VIEW = QUERY.get('view') === '1';
+const IS_EMBED = QUERY.get('embed') === '1' || IS_VIEW;
 const IS_FRAMED = (() => { try { return window.self !== window.top; } catch (_) { return true; } })();
 const AUTOSAVE_KEY = 'temporarymymap:autosave';
 const UI_LANG_KEY = 'temporarymymap:uilang';
@@ -1903,7 +1905,11 @@ function setMode(mode) {
 // ============================================================
 // 保存・読込・共有
 // ============================================================
-function openModal(html) {
+// onClose は閉じたとき（ボタン・背景クリック・Esc・別のモーダルで置き換え）に呼ばれる
+let modalOnClose = null;
+function openModal(html, onClose = null) {
+  runModalOnClose();
+  modalOnClose = onClose;
   $('#modal .modal-card').innerHTML = html;
   $('#modal').hidden = false;
   return $('#modal .modal-card');
@@ -1911,6 +1917,12 @@ function openModal(html) {
 function closeModal() {
   $('#modal').hidden = true;
   $('#modal .modal-card').innerHTML = '';
+  runModalOnClose();
+}
+function runModalOnClose() {
+  const f = modalOnClose;
+  modalOnClose = null;
+  if (f) f();
 }
 
 async function copyText(text) {
@@ -2048,26 +2060,39 @@ async function openEmbedDialog() {
   update();
 }
 
-// 閲覧専用表示として起動する
+// 閲覧専用表示として起動する（埋め込み ?embed=1 と、閲覧専用で開く ?view=1）
 async function initEmbed() {
   document.body.classList.add('embed');
-  if (!CONFIG.embed) { showBlocked(t('このサイトでは地図の埋め込み表示が無効になっています。')); return; }
+  // ?view=1 は埋め込みが無効でも開けるが、iframe 内では埋め込みと同じく拒否する
+  if (!CONFIG.embed && (!IS_VIEW || IS_FRAMED)) { showBlocked(t('このサイトでは地図の埋め込み表示が無効になっています。')); return; }
   let doc = null;
   try { doc = await decodeHash(location.hash); } catch (_) { /* 下で表示 */ }
-  if (!doc) { showBlocked(t('地図データが見つかりません。埋め込み用HTMLを作り直してください。')); return; }
+  if (!doc) {
+    showBlocked(t(IS_VIEW ? '地図データが見つかりません。' : '地図データが見つかりません。埋め込み用HTMLを作り直してください。'));
+    return;
+  }
   try { state = stateFromDoc(doc); } catch (_) { showBlocked(t('地図データを読み込めませんでした。')); return; }
-  const fit = QUERY.get('fit') !== '0';
+  const view = viewFromDoc(doc);
+  // 閲覧専用で開くときは、共有URLと同じく作成者の表示範囲を使う
+  const fit = IS_VIEW ? !view : QUERY.get('fit') !== '0';
   const interactive = QUERY.get('static') !== '1';
   ui.mode = 'view';
   ui.panelOpen = false;
-  createMap(viewFromDoc(doc) || DEFAULT_VIEW, { interactive, embed: true });
+  createMap(view || DEFAULT_VIEW, { interactive, embed: !IS_VIEW });
   if (fit) fitAll(false);
   updateTitleOverlay();
   if (QUERY.get('link') !== '0') {
     const a = $('#embed-link');
     a.href = `${location.pathname}${QUERY.has('lang') ? `?lang=${uiLang}` : ''}${location.hash}`;
+    if (IS_VIEW) {
+      document.body.classList.add('view-only');
+      // 同じタブで編集画面へ（編集中の地図があれば、そこで置き換えるか尋ねる）
+      a.textContent = t('閲覧専用 ｜ 編集画面で開く');
+      a.removeAttribute('target');
+    }
     a.hidden = false;
   }
+  if (IS_VIEW) toast(t('閲覧専用で表示しています。編集中の地図は変更されません'), 4000);
 }
 
 function showBlocked(message) {
@@ -2108,8 +2133,13 @@ function loadDoc(doc, { recordUndo = true } = {}) {
   scheduleSave();
 }
 
+// 読み込みや新規作成で消える内容があるか
+function hasContent(s = state) {
+  return !!(s.points.length || s.arrows.length || s.lines.length || s.pins.length || s.title);
+}
+
 function newMap() {
-  if ((state.points.length || state.arrows.length || state.lines.length || state.pins.length || state.title) &&
+  if (hasContent() &&
       !confirm(t('ポイント・矢印・線・固定ラベル・タイトルをすべて消去します。よろしいですか？\n（「元に戻す」で復元できます）'))) return;
   pushUndo();
   const keep = { style: state.style, lang: state.lang };
@@ -2504,16 +2534,55 @@ function revealItem(type, id) {
 }
 
 async function loadFromHash() {
-  if (!/^#[mj]=/.test(location.hash)) return;
-  try {
-    const doc = await decodeHash(location.hash);
-    loadDoc(doc);
-    toast(t('URLから地図を読み込みました'));
-  } catch (err) {
-    toast(t('URLの地図データを読み込めませんでした'), 4000);
-  }
-  // 読み込み後は URL を素に戻す（以降の編集は自動保存される）
+  const hash = location.hash;
+  if (!/^#[mj]=/.test(hash)) return;
+  // URL を素に戻す（読み込んだ後の編集は自動保存される。取りやめたときも同じ URL が残らないように）
   history.replaceState(null, '', location.pathname + location.search);
+  let doc;
+  try { doc = await decodeHash(hash); } catch (_) { toast(t('URLの地図データを読み込めませんでした'), 4000); return; }
+  await openUrlDoc(doc, hash);
+}
+
+// URL の地図データで編集中の地図を置き換える。消える内容があれば、置き換えるか閲覧専用で開くかを先に尋ねる
+async function openUrlDoc(doc, hash) {
+  let next;
+  try { next = stateFromDoc(doc); } catch (_) { toast(t('URLの地図データを読み込めませんでした'), 4000); return; }
+  // 編集中の地図と同じ内容（自分の共有URLを開き直した場合など）なら尋ねない
+  if (hasContent() && JSON.stringify(next) !== JSON.stringify(stateFromDoc(toDoc()))) {
+    const choice = await askReplaceByUrl();
+    if (choice === 'view') { location.assign(viewOnlyUrl(hash)); return; }
+    if (choice !== 'load') return;
+  }
+  loadDoc(doc);
+  toast(t('URLから地図を読み込みました'));
+}
+
+// 'load'（置き換える）| 'view'（閲覧専用で開く）| 'cancel' を返す。背景クリックや Esc は 'cancel'
+function askReplaceByUrl() {
+  return new Promise(resolve => {
+    let choice = 'cancel';
+    const card = openModal(`<h2>${t('URLの地図を開く')}</h2>
+      <p>${t('読み込むと、編集中の地図が消えます。よろしいですか？')}</p>
+      <p class="note">${t('置き換えた後でも「元に戻す」で編集中の地図に戻せます（ページを閉じるまで）。閲覧専用で開くと、編集中の地図はそのまま残ります。')}</p>
+      <div class="modal-actions">
+        <button class="btn" data-m="cancel">${t('キャンセル')}</button>
+        <button class="btn" data-m="view">${t('閲覧専用で開く')}</button>
+        <button class="btn primary" data-m="load">${t('読み込む')}</button>
+      </div>`, () => resolve(choice));
+    card.onclick = (e) => {
+      const b = e.target.closest('[data-m]');
+      if (!b) return;
+      choice = b.dataset.m;
+      closeModal();
+    };
+    card.querySelector('[data-m="load"]').focus();
+  });
+}
+
+function viewOnlyUrl(hash) {
+  const q = new URLSearchParams({ view: '1' });
+  if (QUERY.has('lang')) q.set('lang', uiLang);
+  return `${location.pathname}?${q}${hash}`;
 }
 
 // ============================================================
@@ -2530,18 +2599,27 @@ async function init() {
   $('#embed-section').hidden = !CONFIG.embed;
   renderUiLangControls();
   bindUi();
-  let doc = null, fromHash = false;
+  let urlDoc = null, urlHash = '';
   if (/^#[mj]=/.test(location.hash)) {
-    try { doc = await decodeHash(location.hash); fromHash = true; } catch (_) { toast(t('URLの地図データを読み込めませんでした'), 4000); }
+    urlHash = location.hash;
+    try { urlDoc = await decodeHash(urlHash); } catch (_) { toast(t('URLの地図データを読み込めませんでした'), 4000); }
     history.replaceState(null, '', location.pathname + location.search);
   }
-  if (!doc) doc = readAutosave();
-  let view = DEFAULT_VIEW;
+  let saved = readAutosave(), savedState = null;
+  try { if (saved) savedState = stateFromDoc(saved); } catch (_) { saved = null; }
+  // 編集中の地図が空なら URL の地図でそのまま始める。そうでなければ編集中の地図で起動してから置き換えるか尋ねる
+  const direct = !!urlDoc && !(savedState && hasContent(savedState));
+  const doc = direct ? urlDoc : saved;
+  let view = DEFAULT_VIEW, fromHash = false;
   if (doc) {
     try {
       state = stateFromDoc(doc);
       view = viewFromDoc(doc) || DEFAULT_VIEW;
-    } catch (_) { state = newState(); }
+      fromHash = direct;
+    } catch (_) {
+      state = newState();
+      if (direct) toast(t('URLの地図データを読み込めませんでした'), 4000);
+    }
   }
   createMap(view);
   setMode('select');
@@ -2550,6 +2628,8 @@ async function init() {
   if (fromHash) {
     scheduleSave(); // URL を消した後に再読込しても復元できるように
     toast(t('URLから地図を読み込みました'));
+  } else if (urlDoc && !direct) {
+    await openUrlDoc(urlDoc, urlHash);
   }
 }
 

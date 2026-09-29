@@ -203,6 +203,7 @@ body.embed #title-overlay { top: 10px; left: 10px; font-size: 16px; max-width: c
 #embed-link:hover { background: #fff; text-decoration: underline; }
 /* タイトルとリンクが重ならないように */
 body.embed:has(#embed-link:not([hidden])) #title-overlay { max-width: calc(100vw - 150px); }
+body.view-only:has(#embed-link:not([hidden])) #title-overlay { max-width: calc(100vw - 230px); }
 
 #blocked { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: #f2f4f7; }
 #blocked p { margin: 0; color: var(--muted); font-size: 14px; text-align: center; line-height: 1.6; }
