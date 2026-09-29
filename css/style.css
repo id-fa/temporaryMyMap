@@ -187,6 +187,26 @@ input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
 
 #print-area { display: none; }
 
+/* ---------- 埋め込み（閲覧専用） ---------- */
+.embed-preview { display: block; width: 100%; border: 1px solid var(--line); border-radius: 8px; background: #f2f2f2; }
+.modal-card input[type=number] { width: 100%; padding: 7px 10px; border: 1px solid #d0d5dd; border-radius: 8px; font-size: 14px; color: var(--fg); }
+
+body.embed #toolbar, body.embed #panel, body.embed #hint, body.embed #draw-bar { display: none !important; }
+body.embed #map { top: 0; bottom: 0; }
+body.embed #title-overlay { top: 10px; left: 10px; font-size: 16px; max-width: calc(100vw - 20px); }
+#embed-link {
+  position: fixed; top: 10px; right: 10px; z-index: 6;
+  padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,.94); box-shadow: 0 1px 6px rgba(0,0,0,.2);
+  color: var(--accent); font-size: 12px; text-decoration: none; white-space: nowrap;
+}
+#embed-link:hover { background: #fff; text-decoration: underline; }
+/* タイトルとリンクが重ならないように */
+body.embed:has(#embed-link:not([hidden])) #title-overlay { max-width: calc(100vw - 150px); }
+
+#blocked { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: #f2f4f7; }
+#blocked p { margin: 0; color: var(--muted); font-size: 14px; text-align: center; line-height: 1.6; }
+body.blocked #map, body.blocked #title-overlay, body.blocked #embed-link { display: none !important; }
+
 /* ---------- スマートフォン ---------- */
 @media (max-width: 767px) {
   :root { --tb-h: 52px; }

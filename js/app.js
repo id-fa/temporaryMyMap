@@ -24,6 +24,11 @@ const TEXT_COLORS = ['#222222', '#ffffff', '#e53935', '#1e88e5', '#2e7d32', '#6d
 const CIRCLE_R = { s: 8, m: 12, l: 16 };
 const DOT_R = { s: 4, m: 5.5, l: 7 };
 const DEFAULT_VIEW = { center: [139.7671, 35.6812], zoom: 14 };
+const CONFIG = { embed: false, ...(window.TEMPORARY_MY_MAP_CONFIG || {}) };
+// 閲覧専用（埋め込み）表示のパラメータ: ?embed=1[&fit=0][&static=1][&link=0]#m=...
+const EMBED_PARAMS = new URLSearchParams(location.search);
+const IS_EMBED = EMBED_PARAMS.get('embed') === '1';
+const IS_FRAMED = (() => { try { return window.self !== window.top; } catch (_) { return true; } })();
 const AUTOSAVE_KEY = 'temporarymymap:autosave';
 const ATTRIBUTION_TEXT = '© OpenStreetMap contributors, © OpenMapTiles, OpenFreeMap';
 const FONT_REGULAR = ['Noto Sans Regular'];
@@ -35,9 +40,13 @@ const CANVAS_FONT = 'system-ui, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI",
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 
 const POINT_DEFAULTS = { label: '', color: '#e53935', shape: 'c', size: 'm', inner: '', pos: 'r', ls: 'halo', fs: 14, bold: true, tc: '#222222' };
-const ARROW_DEFAULTS = { label: '', color: '#e53935', width: 4, dash: false, curve: 0, head: 'end', dist: false };
+// hsz: 矢じりの大きさ（m 標準 / l 大 / xl 特大）、lpos: ラベル位置（c 線上 / t 上 / b 下 / l 左 / r 右）
+const ARROW_DEFAULTS = { label: '', color: '#e53935', width: 4, dash: false, curve: 0, head: 'end', hsz: 'm', dist: false, lpos: 'c' };
+const HEAD_SCALE = { m: 1, l: 1.5, xl: 2 };
+const ARROW_LABEL_FS = 13;
 const PIN_DEFAULTS = { text: '', color: '#333333', fs: 13, bold: false, kind: 'other', icon: '' };
-const LINE_DEFAULTS = { label: '', color: '#1e88e5', width: 4, dash: false, head: 'none', closed: false, fill: true, dist: false };
+const LINE_DEFAULTS = { label: '', color: '#1e88e5', width: 4, dash: false, head: 'none', hsz: 'm', closed: false, fill: true, dist: false, lpos: 'c' };
+const LABEL_POSITIONS = ['c', 't', 'b', 'l', 'r'];
 const NUM_FIELDS = new Set(['fs', 'width', 'curve']);
 const BOOL_FIELDS = new Set(['bold', 'dash', 'dist', 'closed', 'fill']);
 
@@ -240,6 +249,8 @@ function stateFromDoc(doc) {
     const arrow = { ...ARROW_DEFAULTS, ...pick(a, ARROW_DEFAULTS), id: idOf(a.id), from, to };
     arrow.curve = clamp(arrow.curve, -1, 1);
     arrow.width = clamp(arrow.width, 1, 12);
+    if (!HEAD_SCALE[arrow.hsz]) arrow.hsz = 'm';
+    if (!LABEL_POSITIONS.includes(arrow.lpos)) arrow.lpos = 'c';
     s.arrows.push(arrow);
   }
   for (const l of doc.lines || []) {
@@ -250,6 +261,8 @@ function stateFromDoc(doc) {
     if (coords.length < 2) continue;
     const line = { ...LINE_DEFAULTS, ...pick(l, LINE_DEFAULTS), id: idOf(l.id), coords };
     line.width = clamp(line.width, 1, 12);
+    if (!HEAD_SCALE[line.hsz]) line.hsz = 'm';
+    if (!LABEL_POSITIONS.includes(line.lpos)) line.lpos = 'c';
     if (coords.length < 3) line.closed = false;
     s.lines.push(line);
   }
@@ -301,6 +314,7 @@ async function decodeHash(hash) {
 // --- 自動保存（このブラウザ内のみ） ---
 let saveTimer = 0;
 function scheduleSave() {
+  if (IS_EMBED) return; // 閲覧専用表示では利用者の作業データを上書きしない
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try { localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(toDoc())); } catch (_) { /* 保存できない環境では無視 */ }
@@ -316,7 +330,7 @@ function readAutosave() {
 // ============================================================
 // 地図
 // ============================================================
-function createMap(view) {
+function createMap(view, { interactive = true, embed = false } = {}) {
   map = new maplibregl.Map({
     container: 'map',
     style: STYLES[state.style].url,
@@ -326,6 +340,14 @@ function createMap(view) {
     pitchWithRotate: false,
     touchPitch: false,
     attributionControl: false,
+    interactive,
+    // 埋め込み時はページのスクロールを奪わないよう、Ctrl+スクロール／2本指でのみ地図を操作する
+    cooperativeGestures: embed && interactive,
+    locale: {
+      'CooperativeGesturesHandler.WindowsHelpText': 'Ctrl キーを押しながらスクロールで拡大・縮小',
+      'CooperativeGesturesHandler.MacHelpText': '⌘ キーを押しながらスクロールで拡大・縮小',
+      'CooperativeGesturesHandler.MobileHelpText': '2本指で地図を動かせます',
+    },
     localIdeographFontFamily: LOCAL_IDEOGRAPH_FONT,
     canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true },
     maxCanvasSize: [8192, 8192],
@@ -334,8 +356,8 @@ function createMap(view) {
   map.keyboard.disableRotation();
   map.touchZoomRotate.disableRotation();
 
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
-  map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), 'bottom-left');
+  if (interactive) map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-left');
+  if (!embed) map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true } }), 'bottom-left');
   map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left');
   map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left');
 
@@ -521,7 +543,8 @@ function addCustomLayers() {
   map.addLayer({
     id: 'mm-arrow-label', type: 'symbol', source: 'mm-alabels',
     layout: {
-      'text-field': ['get', 'label'], 'text-font': ['literal', FONT_BOLD], 'text-size': 13,
+      'text-field': ['get', 'label'], 'text-font': ['literal', FONT_BOLD], 'text-size': ARROW_LABEL_FS,
+      'text-anchor': ['get', 'anchor'], 'text-radial-offset': ['get', 'ro'], 'text-justify': 'auto',
       'text-max-width': 14, 'text-allow-overlap': true, 'text-ignore-placement': false,
     },
     paint: { 'text-color': ['get', 'color'], 'text-halo-color': selHalo, 'text-halo-width': 2.2 },
@@ -702,7 +725,7 @@ function renderPoints() {
       cop: none ? 0 : 1,
       sw: none ? 1.5 : p.shape === 'c' ? 2 : 1.5,
       sc: none ? '#666666' : '#ffffff',
-      sop: none ? (ui.exporting ? 0 : 0.8) : 1,
+      sop: none ? (ui.exporting || IS_EMBED ? 0 : 0.8) : 1,
       hr: Math.max(r, 6) + 9,
       selr: Math.max(r, 6) + 5,
       selc,
@@ -756,18 +779,6 @@ function trimEnd(pts, dist) {
   }
   return out;
 }
-function pointAlong(pts, dist) {
-  for (let i = 1; i < pts.length; i++) {
-    const a = pts[i - 1], b = pts[i];
-    const seg = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    if (seg >= dist && seg > 0) {
-      const t = dist / seg;
-      return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
-    }
-    dist -= seg;
-  }
-  return pts[pts.length - 1];
-}
 function mercToLngLat([x, y]) {
   const ll = new maplibregl.MercatorCoordinate(x, y).toLngLat();
   return [ll.lng, ll.lat];
@@ -775,7 +786,47 @@ function mercToLngLat([x, y]) {
 // 画面上の角度（北＝上から時計回り）
 function bearingOf(from, to) { return Math.atan2(to[0] - from[0], -(to[1] - from[1])) * 180 / Math.PI; }
 
-function arrowHeadSize(a) { return Math.round(Math.max(12, a.width * 3.2 + 8)); }
+function arrowHeadSize(a) {
+  return Math.round(Math.max(12, a.width * 3.2 + 8) * (HEAD_SCALE[a.hsz] || 1));
+}
+
+// パス上の指定距離の位置と、その地点での進行方向（単位ベクトル）
+function tangentAlong(pts, dist) {
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    const seg = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if ((seg >= dist || i === pts.length - 1) && seg > 0) {
+      const t = Math.min(1, dist / seg);
+      return { pt: [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t], dir: [(b[0] - a[0]) / seg, (b[1] - a[1]) / seg] };
+    }
+    dist -= seg;
+  }
+  return { pt: pts[pts.length - 1], dir: [1, 0] };
+}
+
+// 線の周囲にラベルを置くときの text-anchor と text-radial-offset を求める。
+// 指定方向（上下左右）に近い側の法線方向へ、線に文字がかからない距離だけ離す
+const ANCHOR_BY_SECTOR = ['left', 'top-left', 'top', 'top-right', 'right', 'bottom-right', 'bottom', 'bottom-left'];
+function sideLabelPlacement(dir, pos, text, fs, lineWidth) {
+  const want = { t: [0, -1], b: [0, 1], l: [-1, 0], r: [1, 0] }[pos];
+  if (!want) return { anchor: 'center', ro: 0 };
+  const [tx, ty] = dir;
+  const n1 = [-ty, tx], n2 = [ty, -tx];
+  const d1 = n1[0] * want[0] + n1[1] * want[1], d2 = -d1;
+  // 真横・真上など同点のときは上側（なければ右側）を優先
+  let n = d1 > d2 ? n1 : n2;
+  if (Math.abs(d1 - d2) < 1e-9) n = (n1[1] < 0 || (n1[1] === 0 && n1[0] > 0)) ? n1 : n2;
+  const sector = ((Math.round(Math.atan2(n[1], n[0]) / (Math.PI / 4)) % 8) + 8) % 8;
+  const anchor = ANCHOR_BY_SECTOR[sector];
+  // 上下／左右ぴったりに置く場合は、傾いた線が文字の端にかからないよう余分に離す
+  const lines = text.split('\n');
+  const halfW = Math.max(...lines.map(s => s.length)) * fs * 0.5;
+  const halfH = lines.length * fs * 0.6;
+  let extra = 0;
+  if (anchor === 'top' || anchor === 'bottom') extra = halfW * Math.abs(ty / (tx || 1e-9));
+  if (anchor === 'left' || anchor === 'right') extra = halfH * Math.abs(tx / (ty || 1e-9));
+  return { anchor, ro: (lineWidth / 2 + 5 + Math.min(extra, halfW)) / fs };
+}
 
 // 2点間の直線距離（大円距離, m）
 function distanceMeters(p1, p2) {
@@ -842,6 +893,17 @@ function polygonCentroid(pts) {
   return [cx / (3 * a), cy / (3 * a)];
 }
 
+// 閉じた図形のラベル位置: 中央は重心、上下左右は外接矩形の各辺の中点から外側へ置く
+function shapeLabelPlacement(merc, pos, lineWidth) {
+  if (pos === 'c' || !LABEL_POSITIONS.includes(pos)) return { at: polygonCentroid(merc), place: { anchor: 'center', ro: 0 } };
+  const xs = merc.map(p => p[0]), ys = merc.map(p => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const at = { t: [cx, minY], b: [cx, maxY], l: [minX, cy], r: [maxX, cy] }[pos];
+  const anchor = { t: 'bottom', b: 'top', l: 'right', r: 'left' }[pos];
+  return { at, place: { anchor, ro: (lineWidth / 2 + 5) / ARROW_LABEL_FS } };
+}
+
 // 線（メルカトル座標のパス）を描画用フィーチャにする。矢じりがある端は矢じりの下で線を止める
 function addStroke(out, path, o, unit) {
   const n = path.length;
@@ -885,8 +947,11 @@ function renderStrokes() {
     }, unit);
     const labelText = arrowLabelText(a);
     if (labelText) {
-      labels.push(feature({ type: 'Point', coordinates: mercToLngLat(pointAlong(path, total / 2)) },
-        { id: a.id, t: 'arrow', label: labelText, color: a.color, sel }));
+      // メルカトル座標は画面と同じく y 下向きなので、進行方向をそのまま画面上の向きとして使える
+      const { pt, dir } = tangentAlong(path, total / 2);
+      const place = sideLabelPlacement(dir, a.lpos, labelText, ARROW_LABEL_FS, a.width);
+      labels.push(feature({ type: 'Point', coordinates: mercToLngLat(pt) },
+        { id: a.id, t: 'arrow', label: labelText, color: a.color, sel, ...place }));
     }
   }
 
@@ -902,9 +967,16 @@ function renderStrokes() {
     }
     const labelText = lineLabelText(l);
     if (labelText) {
-      const at = l.closed ? polygonCentroid(merc) : pointAlong(path, total / 2);
+      let at, place;
+      if (l.closed) {
+        ({ at, place } = shapeLabelPlacement(merc, l.lpos, l.width));
+      } else {
+        const { pt, dir } = tangentAlong(path, total / 2);
+        at = pt;
+        place = sideLabelPlacement(dir, l.lpos, labelText, ARROW_LABEL_FS, l.width);
+      }
       labels.push(feature({ type: 'Point', coordinates: mercToLngLat(at) },
-        { id: l.id, t: 'line', label: labelText, color: l.color, sel }));
+        { id: l.id, t: 'line', label: labelText, color: l.color, sel, ...place }));
     }
   }
 
@@ -957,6 +1029,7 @@ function onPointerDown(e) {
 
 function onPointerMove(e) {
   if (ui.mode === 'draw') { drawMove(e); return; }
+  if (ui.mode === 'view') return;
   if (drag) {
     if (!drag.moved) {
       if (Math.hypot(e.point.x - drag.start.x, e.point.y - drag.start.y) < 4) return;
@@ -1321,13 +1394,14 @@ function fitAll(animate = true) {
   // ポイントと線を優先し、どちらもなければ固定ラベルに合わせる
   const coords = [...state.points.map(p => [p.lng, p.lat]), ...state.lines.flatMap(l => l.coords)];
   if (!coords.length) coords.push(...state.pins.map(p => [p.lng, p.lat]));
-  if (!coords.length) { toast('ポイントや線がまだありません'); return; }
+  if (!coords.length) { if (!IS_EMBED) toast('ポイントや線がまだありません'); return; }
   const bounds = new maplibregl.LngLatBounds();
   for (const c of coords) bounds.extend(c);
-  const pad = { top: 70, bottom: 60, left: 60, right: 90 };
+  // 埋め込み表示は画面が小さく UI もないので余白を控えめにする
+  const pad = IS_EMBED ? { top: 40, bottom: 40, left: 40, right: 70 } : { top: 70, bottom: 60, left: 60, right: 90 };
   if (state.title.trim()) pad.top += 40;
   const panel = $('#panel');
-  if (ui.panelOpen) {
+  if (ui.panelOpen && !IS_EMBED) {
     if (isMobile()) pad.bottom += Math.max(0, panel.getBoundingClientRect().height - 52);
     else pad.right += panel.getBoundingClientRect().width + 10;
   }
@@ -1438,6 +1512,10 @@ function swatchHtml(field, colors, current) {
     `<button type="button" class="sw ${c === current ? 'on' : ''}" style="--c:${c}" data-f="${field}" data-v="${c}" aria-label="${c}"></button>`).join('')}
     <input type="color" data-f="${field}" value="${esc(current)}" aria-label="任意の色"></div>`;
 }
+function headSizeHtml(o) {
+  return `<div class="field-label">矢じりの大きさ</div>
+    ${segHtml('hsz', [['m', '標準'], ['l', '大'], ['xl', '特大']], o.hsz)}`;
+}
 function rangeHtml(field, label, min, max, step, value) {
   return `<div class="field-label"><span>${label}</span><output data-for="${field}">${value}</output></div>
     <input type="range" data-f="${field}" min="${min}" max="${max}" step="${step}" value="${value}">`;
@@ -1497,6 +1575,8 @@ function renderEditor(opts = {}) {
       <input type="text" data-f="label" value="${esc(a.label)}" placeholder="なし">
       <div class="field-label"><span>距離の表示</span><span>直線 ${arrowDistanceText(a)}</span></div>
       ${segHtml('dist', [['false', '表示しない'], ['true', '表示する']], a.dist)}
+      <div class="field-label">ラベルの位置</div>
+      ${segHtml('lpos', [['c', '線上'], ['t', '上'], ['b', '下'], ['l', '左'], ['r', '右']], a.lpos)}
       <div class="field-label">色</div>
       ${swatchHtml('color', COLORS, a.color)}
       <div class="field-label">太さ</div>
@@ -1505,6 +1585,7 @@ function renderEditor(opts = {}) {
         <div><div class="field-label">線の種類</div>${segHtml('dash', [['false', '実線'], ['true', '破線']], a.dash)}</div>
         <div><div class="field-label">矢じり</div>${segHtml('head', [['end', '終点'], ['both', '両端'], ['none', 'なし']], a.head)}</div>
       </div>
+      ${a.head !== 'none' ? headSizeHtml(a) : ''}
       ${rangeHtml('curve', '曲がり具合', -1, 1, 0.05, a.curve)}
       <div class="ed-actions">
         <button class="btn" data-act="reverse">向きを反転</button>
@@ -1518,6 +1599,8 @@ function renderEditor(opts = {}) {
       <input type="text" data-f="label" value="${esc(l.label)}" placeholder="なし">
       <div class="field-label"><span>${l.closed ? '面積' : '長さ'}の表示</span><span>${lineMeasureText(l).replace(/^\S+ /, '')}</span></div>
       ${segHtml('dist', [['false', '表示しない'], ['true', '表示する']], l.dist)}
+      <div class="field-label">ラベルの位置${l.closed ? '（上下左右は図形の外側）' : ''}</div>
+      ${segHtml('lpos', [['c', l.closed ? '中央' : '線上'], ['t', '上'], ['b', '下'], ['l', '左'], ['r', '右']], l.lpos)}
       <div class="field-label">色</div>
       ${swatchHtml('color', COLORS, l.color)}
       <div class="field-label">太さ</div>
@@ -1528,7 +1611,8 @@ function renderEditor(opts = {}) {
       </div>
       ${l.closed
         ? `<div class="field-label">塗りつぶし</div>${segHtml('fill', [['false', 'なし'], ['true', 'あり']], l.fill)}`
-        : `<div class="field-label">矢じり</div>${segHtml('head', [['none', 'なし'], ['end', '終点'], ['both', '両端']], l.head)}`}
+        : `<div class="field-label">矢じり</div>${segHtml('head', [['none', 'なし'], ['end', '終点'], ['both', '両端']], l.head)}
+           ${l.head !== 'none' ? headSizeHtml(l) : ''}`}
       <div class="ed-actions">
         <button class="btn danger" data-act="delete">削除</button>
       </div>`;
@@ -1696,20 +1780,24 @@ async function copyText(text) {
   }
 }
 
+function urlWarningsHtml(len) {
+  const warn = len > 8000
+    ? `<div class="warn">URLが ${len.toLocaleString()} 文字あります。長すぎて開けないアプリが多いため、「JSONで保存」を使ってください。</div>`
+    : len > 2000
+      ? `<div class="warn">URLが ${len.toLocaleString()} 文字あります。チャットやメール、埋め込み先のサービスによっては途中で切れることがあります。</div>`
+      : '';
+  const local = location.protocol === 'file:'
+    ? '<div class="warn">ファイルを直接開いているため、このURLは他の端末では開けません。Webサーバーに置くと共有できます。</div>' : '';
+  return warn + local;
+}
+
 async function shareUrl() {
   const hash = await encodeDoc(toDoc());
   const url = `${location.origin}${location.pathname}#${hash}`;
   const len = url.length;
-  const warn = len > 8000
-    ? `<div class="warn">URLが ${len.toLocaleString()} 文字あります。長すぎて開けないアプリが多いため、「JSONで保存」を使ってください。</div>`
-    : len > 2000
-      ? `<div class="warn">URLが ${len.toLocaleString()} 文字あります。チャットやメールによっては途中で切れることがあります。</div>`
-      : '';
-  const local = location.protocol === 'file:'
-    ? '<div class="warn">ファイルを直接開いているため、このURLは他の端末では開けません。Webサーバーに置くと共有できます。</div>' : '';
   const card = openModal(`<h2>共有URL</h2>
     <textarea readonly rows="4">${esc(url)}</textarea>
-    <p class="note">${len.toLocaleString()} 文字。このURLを開くと、今の地図がそのまま再現されます。</p>${warn}${local}
+    <p class="note">${len.toLocaleString()} 文字。このURLを開くと、今の地図がそのまま再現されます。</p>${urlWarningsHtml(len)}
     <div class="modal-actions">
       ${navigator.share ? '<button class="btn" data-m="share">共有…</button>' : ''}
       <button class="btn primary" data-m="copy">コピー</button>
@@ -1723,6 +1811,119 @@ async function shareUrl() {
     if (b.dataset.m === 'share') navigator.share({ title: state.title || 'TemporaryMyMap', url }).catch(() => {});
     if (b.dataset.m === 'close') closeModal();
   };
+}
+
+// ------------------------------------------------------------
+// 埋め込み（閲覧専用）: config.js の embed が true のときだけ使える
+// ------------------------------------------------------------
+function embedUrl(hash, opt) {
+  const q = new URLSearchParams({ embed: '1' });
+  if (!opt.fit) q.set('fit', '0');
+  if (!opt.interactive) q.set('static', '1');
+  if (!opt.link) q.set('link', '0');
+  return `${location.origin}${location.pathname}?${q}#${hash}`;
+}
+function embedHtml(url, opt) {
+  const width = opt.full ? '100%' : String(opt.width);
+  const title = state.title.trim() || '地図';
+  return `<iframe src="${esc(url)}" width="${width}" height="${opt.height}" style="border:0;max-width:100%" `
+    + `loading="lazy" title="${esc(title)}" allowfullscreen></iframe>`;
+}
+
+async function openEmbedDialog() {
+  if (!CONFIG.embed) return;
+  const hash = await encodeDoc(toDoc());
+  const opt = { width: 600, height: 450, full: false, fit: true, interactive: true, link: true };
+  const card = openModal(`<h2>埋め込み（閲覧専用）</h2>
+    <p class="note">他のサイトやブログに貼り付けて、この地図を閲覧専用で表示できます。貼り付けた後に地図を編集しても埋め込み側には反映されないので、変更したら作り直してください。</p>
+    <div class="two-col">
+      <label class="range-row">幅（px）<input type="number" data-em="width" min="200" max="2000" value="${opt.width}"></label>
+      <label class="range-row">高さ（px）<input type="number" data-em="height" min="150" max="2000" value="${opt.height}"></label>
+    </div>
+    <label class="check"><input type="checkbox" data-em="full"> 幅を貼り付け先に合わせる（100%）</label>
+    <div class="field-label">表示範囲</div>
+    <div class="seg">
+      <button type="button" data-em-seg="fit" data-v="true" class="on">全体が収まるように</button>
+      <button type="button" data-em-seg="fit" data-v="false">今の表示範囲</button>
+    </div>
+    <div class="field-label">地図の操作</div>
+    <div class="seg">
+      <button type="button" data-em-seg="interactive" data-v="true" class="on">移動・拡大できる</button>
+      <button type="button" data-em-seg="interactive" data-v="false">固定（画像のように表示）</button>
+    </div>
+    <label class="check"><input type="checkbox" data-em="link" checked> 「大きな地図で見る」リンクを表示</label>
+    <div class="field-label">プレビュー</div>
+    <iframe class="embed-preview" title="埋め込みプレビュー"></iframe>
+    <div class="field-label">埋め込み用HTML</div>
+    <textarea readonly rows="4" data-em-out="html"></textarea>
+    <div class="field-label">閲覧専用URL</div>
+    <textarea readonly rows="2" data-em-out="url"></textarea>
+    <div data-em-out="warn"></div>
+    <div class="modal-actions">
+      <button class="btn" data-m="copy-url">URLをコピー</button>
+      <button class="btn primary" data-m="copy-html">HTMLをコピー</button>
+      <button class="btn" data-m="close">閉じる</button>
+    </div>`);
+
+  const preview = card.querySelector('.embed-preview');
+  let previewTimer = 0;
+  const update = () => {
+    const url = embedUrl(hash, opt);
+    card.querySelector('[data-em-out="url"]').value = url;
+    card.querySelector('[data-em-out="html"]').value = embedHtml(url, opt);
+    card.querySelector('[data-em-out="warn"]').innerHTML = urlWarningsHtml(url.length);
+    $$('[data-em-seg]', card).forEach(b => b.classList.toggle('on', String(opt[b.dataset.emSeg]) === b.dataset.v));
+    // プレビューは実際の高さに合わせる（モーダルに収まるよう上限あり）
+    preview.style.height = `${Math.min(opt.height, 320)}px`;
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => { if (preview.src !== url) preview.src = url; }, 300);
+  };
+  card.addEventListener('input', (e) => {
+    const key = e.target.dataset.em;
+    if (!key) return;
+    if (e.target.type === 'checkbox') opt[key] = e.target.checked;
+    else opt[key] = clamp(Math.round(Number(e.target.value) || 0), 150, 2000);
+    update();
+  });
+  $$('textarea', card).forEach(t => t.addEventListener('focus', () => t.select()));
+  card.onclick = async (e) => {
+    const seg = e.target.closest('[data-em-seg]');
+    if (seg) { opt[seg.dataset.emSeg] = seg.dataset.v === 'true'; update(); return; }
+    const b = e.target.closest('[data-m]');
+    if (!b) return;
+    if (b.dataset.m === 'copy-url') toast(await copyText(embedUrl(hash, opt)) ? 'URLをコピーしました' : 'コピーできませんでした');
+    if (b.dataset.m === 'copy-html') toast(await copyText(embedHtml(embedUrl(hash, opt), opt)) ? '埋め込み用HTMLをコピーしました' : 'コピーできませんでした');
+    if (b.dataset.m === 'close') closeModal();
+  };
+  update();
+}
+
+// 閲覧専用表示として起動する
+async function initEmbed() {
+  document.body.classList.add('embed');
+  if (!CONFIG.embed) { showBlocked('このサイトでは地図の埋め込み表示が無効になっています。'); return; }
+  let doc = null;
+  try { doc = await decodeHash(location.hash); } catch (_) { /* 下で表示 */ }
+  if (!doc) { showBlocked('地図データが見つかりません。埋め込み用HTMLを作り直してください。'); return; }
+  try { state = stateFromDoc(doc); } catch (_) { showBlocked('地図データを読み込めませんでした。'); return; }
+  const fit = EMBED_PARAMS.get('fit') !== '0';
+  const interactive = EMBED_PARAMS.get('static') !== '1';
+  ui.mode = 'view';
+  ui.panelOpen = false;
+  createMap(viewFromDoc(doc) || DEFAULT_VIEW, { interactive, embed: true });
+  if (fit) fitAll(false);
+  updateTitleOverlay();
+  if (EMBED_PARAMS.get('link') !== '0') {
+    const a = $('#embed-link');
+    a.href = `${location.pathname}${location.hash}`;
+    a.hidden = false;
+  }
+}
+
+function showBlocked(message) {
+  document.body.classList.add('blocked');
+  $('#blocked-message').textContent = message;
+  $('#blocked').hidden = false;
 }
 
 function saveJson() {
@@ -2057,6 +2258,7 @@ function runAction(act) {
     case 'export-png': exportPng(); break;
     case 'print': printMap(); break;
     case 'share-url': shareUrl(); break;
+    case 'embed': openEmbedDialog(); break;
     case 'save-json': saveJson(); break;
     case 'load-json': $('#file-input').click(); break;
     case 'new-map': newMap(); break;
@@ -2134,6 +2336,13 @@ async function loadFromHash() {
 // 起動
 // ============================================================
 async function init() {
+  if (IS_EMBED) { await initEmbed(); return; }
+  if (IS_FRAMED && !CONFIG.embed) {
+    document.body.classList.add('embed');
+    showBlocked('このサイトでは地図の埋め込み表示が無効になっています。');
+    return;
+  }
+  $('#embed-section').hidden = !CONFIG.embed;
   bindUi();
   let doc = null, fromHash = false;
   if (/^#[mj]=/.test(location.hash)) {

@@ -46,6 +46,7 @@ node --check js/app.js                     # 構文チェック（唯一の静�
 ### MapLibre の制約に合わせた実装上の決まり
 
 - GeoJSON プロパティの配列を `text-offset` / `icon-offset` に渡さない。代わりにラベル位置は `text-anchor` + `text-radial-offset`、矢じりの後退量は画像に余白を焼き込む（`headImageId(color, size, gap)` → `styleimagemissing` で `makeHeadImage` がオンデマンド生成）
+- 矢印・線ラベルの位置 `lpos`（c/t/b/l/r）の「上下左右」は画面方向の指定。矢印と開いた線は `sideLabelPlacement()` が進行方向（`tangentAlong`）から指定方向に近い側の法線を選び、8 方位の `text-anchor` と、傾いた線に文字がかからない `text-radial-offset` を計算する。閉じた図形は `shapeLabelPlacement()` が外接矩形の辺の外側（c は重心）に置く
 - `line-dasharray` はデータ駆動不可なので、実線と破線は別レイヤー（filter で `dash` を分岐）
 - 矢印・線の端は矢じりの下で止めるため、ピクセル量をメルカトル距離に換算して切り詰める（`addStroke` / `trimEnd`）。ズーム依存なので `zoom` イベントで `renderStrokes` を再実行している
 - 回転・ピッチは無効化（`bearingOf` などは北上前提）
@@ -72,6 +73,13 @@ node --check js/app.js                     # 構文チェック（唯一の静�
 4. `deleteSel()`、`setField()`（前回スタイルの記憶）、`renderEditor()`、`renderLists()`、`revealItem()`、`fitAll()`
 5. モードを追加する場合: ツールバーの `data-mode` ボタン、`setMode()`、`onMapClick()`、`updateHint()`、キーボードの `keyModes`、`#map.mode-*` のカーソル CSS
 6. `index.html` の一覧（`#list-*` / `#count-*`）、README の機能表
+
+## 設定と埋め込み（閲覧専用）表示
+
+- `js/config.js`（`window.TEMPORARY_MY_MAP_CONFIG`）はサイト設置者向け設定。`app.js` の `CONFIG` に既定値とマージされる。無くても動く
+- `embed`（既定 `false`）で埋め込み機能を切り替える。`?embed=1` のとき `init()` は `initEmbed()` だけを実行し、`bindUi()` もパネル描画も行わない（`ui.mode = 'view'`）。`IS_EMBED` の間は `scheduleSave()` が何もしない（同一オリジンの localStorage を上書きしないため）
+- `embed: false` のときは閲覧専用URLと、iframe 内で開かれた通常ページ（`IS_FRAMED`）の両方を `showBlocked()` で拒否する
+- 埋め込みで出したくない編集用の表示（「なし」マーカーのガイド円など）は `IS_EMBED` を見て消す
 
 ## 外部要件
 
